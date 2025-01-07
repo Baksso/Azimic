@@ -1,0 +1,1712 @@
+---
+title: "Effect of intrapartum Azi on gut microbiome development in early childhood"
+author: "Bakary Sanyang"
+date: "2024-06-23"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.show = 'hide', 
+                      results = 'hide', warning = FALSE, message = FALSE)
+
+```
+
+
+```{r data QC and cleaning, echo=TRUE}
+
+library(tidyverse)
+library(readxl)
+library(readr)
+
+
+setwd("~/Desktop/my_projects/MIC_A2/16S_data/final_analysis/")
+
+set.seed(18021965)
+
+# Qc plots ----------------------------------------------------------------
+
+qc_data <- read_xlsx("MIC2_16S_qc_data.xlsx") 
+
+qc_data$Time_point <- factor(qc_data$Time_point, 
+                             levels = c("extraction_control", 
+                                        "field_control_main",
+                                        "field_control_yr3", "mock",
+                                        "day_0", "day_6", "day_28",
+                                        "month_4", "year_3"))
+qc_data$stage <- factor(qc_data$stage, levels = c("before_pcr", "after_pcr"))
+
+dna_conc_plot <- ggplot(qc_data, 
+                        aes(x=Time_point, y=conc, color=Sample_type)) +
+  geom_point (position = 
+                position_jitterdodge(
+                  jitter.width = 0.2, jitter.height = 0, dodge.width = 0.8), 
+              alpha=0.6, show.legend = FALSE) +
+  scale_color_manual(values = c("green", "#FF5412", 
+                                "dark blue", "red", "brown")) +
+  geom_boxplot(aes(x=Time_point, y=conc, color=Sample_type),
+               alpha=0.2, outlier.colour = NA, 
+               position = position_dodge(width = 0.8), show.legend = FALSE) +
+  labs(x="Sample type",
+       y="DNA concentration (ng/µl)") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  facet_wrap(facets = "stage")
+
+
+
+#-------------------------------------------------------------------------------
+#import metadata, feature table, and taxonomy table
+
+#sample metadata
+meta<- read_xlsx("metadata_child_final.xlsx", col_types = "text") %>%
+  mutate(sample=as.character(sample))%>% select(-Treatment, -Extraction_batch)
+
+meta$Time_point <- recode(meta$Time_point, 
+                          Cyear_3 = "fctrl_year3", STGG = "fctrl_main_study")
+
+meta$Sample_type <- recode(meta$Sample_type, STGG = "fctrl_main_study",
+                           field_control = "fctrl_year3")
+
+meta$sample <- recode(meta$sample, mock1 = "Mock1", mock2 = "Mock2", 
+                      mock3 = "Mock3", mock4 = "Mock4",
+                      mock5 = "Mock5", mock6 = "Mock6", mock7 = "Mock7")
+
+
+baseline <- read_xlsx("Baseline_characteristics.xlsx", sheet = 1)
+baseline$Rand_No <- as.character(baseline$Rand_No)
+
+metadata <- right_join(meta, baseline, by="Rand_No")
+
+
+#feature (OTU) table 
+shared1 <- read_tsv("final.mic2.opti_mcc.0.03.filter.shared", 
+                    col_types = cols(Group=col_character())) %>%
+  select(-label, -numOtus) %>% 
+  rename(sample=Group) %>% 
+  pivot_longer(cols = -sample, names_to = "otu", values_to = "count") %>%
+  group_by(sample) %>% mutate(cum_abund=(sum(count)))
+
+shared1$sample <- recode(shared1$sample, 
+                         Mock1_S268 = "Mock3", Mock2_S269 = "Mock4", 
+                        mock5 = "Mock5", mock6 = "Mock6", mock7 = "Mock7")
+
+#taxonomy table
+constaxonomy <- read_tsv(file="final.mic2.opti_mcc.0.03.cons.pick.taxonomy")%>%
+  mutate(
+    Taxonomy=str_replace_all(string = Taxonomy, 
+                             pattern = "\\(\\d*\\)", replacement="")) %>%
+  mutate(
+    Taxonomy=str_replace_all(string = Taxonomy, 
+                             pattern = ";$", replacement = "")) %>%
+  separate(Taxonomy, into = c("kingdom", "phylum", "class", "order", 
+                              "family", "genus"), sep = ";")
+
+
+#------------------------------------------------------------------------------
+#summary of read counts of samples and controls pre-filter
+
+count_data <- inner_join(shared1, meta, by = "sample") 
+
+count_data1 <- count_data %>% group_by(sample) %>% 
+  distinct(sample, .keep_all = TRUE)
+
+count_plot1 <- count_data1 %>% group_by(sample, Sample_type) %>% 
+  ggplot(., aes(x=Sample_type, y=cum_abund, color=Sample_type)) +
+  geom_point (position = 
+                position_jitterdodge(
+                  jitter.width = 0.2, jitter.height = 0, dodge.width = 0.8), 
+               alpha=0.6, show.legend = FALSE) +
+  scale_color_manual(values = c("#FF5412", "dark blue", "red", 
+                                "green", "gold", "brown")) +
+  geom_boxplot(aes(x=Sample_type, y=cum_abund, color=Sample_type),
+               alpha=0.6, outlier.colour = NA, 
+               position = position_dodge(width = 0.8), show.legend = FALSE) +
+  labs(x="Sample type",
+       y="Read count (Pre-filter)", tag = "a") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+
+
+# genus profiles of controls before filtering
+
+shared1a <- shared1 %>% group_by(sample) %>% mutate(r_abund = count/cum_abund)
+
+shared1a %>% group_by(sample) %>% summarise(n=sum(r_abund)) %>% summary()
+
+comb_genus_data_cntrl1 <- right_join(shared1a, constaxonomy, 
+                                     by=c('otu' = 'OTU'))%>%
+  group_by(sample, genus) %>%
+  summarise(agg_r_abund=sum(r_abund))%>%
+  inner_join(., meta, by='sample')%>%
+  ungroup() %>% filter(Sample_type !='RS')
+
+comb_genus_data_cntrl1 %>% group_by(sample) %>% 
+  summarise(n=sum(agg_r_abund)) %>% summary()
+
+top20_genus_cntrl1 <- comb_genus_data_cntrl1 %>%
+  group_by(genus) %>%
+  summarise(mean=mean(agg_r_abund)) %>%
+  arrange((desc(mean))) %>% 
+  top_n(20, mean) %>%
+  pull(genus) 
+
+#make color palette
+
+mycolor <- c("#4C5270", "#EBEBE8","#BCECE0", "#3D550C", "#81B622", "#59981A",
+             "#778A35", "#DAD870", "#ECF87F","#D1E2C4", "#31352E", "#8F3B21", 
+             "#DD9927", "#FF6501", "#B78326", "#86785C",
+             "#ADA7A7", "#FFB85D", "#FF5412", "#FFA384")
+
+
+
+top20_cntrl1 <- comb_genus_data_cntrl1 %>%
+  filter(genus %in% top20_genus_cntrl1)
+
+top20_cntrl1 %>% group_by(sample) %>% 
+  summarise(n=sum(agg_r_abund)) %>% summary()
+
+genus_plot_cntrl1 <- top20_cntrl1 %>%
+  group_by(Time_point, genus, sample, Sample_type) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=sample, y=sum_agg_r_abund, fill=genus)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete (label=sample) +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance (Pre-filter)", tag = "b") +
+  scale_fill_manual(values = mycolor, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 10), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
+  facet_wrap(facets = "Sample_type", scales = "free_x")
+
+
+
+#------------------------------------------------------------------------------
+#contaminant OTU identification
+
+library(phyloseq)
+library(decontam)
+
+meta_decon <- meta %>% 
+  mutate(isControl= if_else(Sample_type == "RS", "FALSE", "TRUE"))%>%
+  filter(Sample_type!="mock") %>% column_to_rownames(var = "sample") 
+
+meta_decon$isControl <-  as.logical(meta_decon$isControl)
+
+otutbl <- import_mothur(mothur_shared_file = 
+                          "final.mic2.opti_mcc.0.03.filter.shared") 
+
+row.names(otutbl)
+is.matrix(otutbl) #should be true
+is.numeric(otutbl) #should be true
+
+psq <- phyloseq(otu_table(otutbl, taxa_are_rows = TRUE), 
+                sample_data(meta_decon)) 
+
+contam_prev_0.2 <- isContaminant(psq, method= "prevalence", 
+                                 neg="isControl", threshold=0.2,
+                                 detailed=TRUE)
+
+
+contaminant_otu_prev <- contam_prev_0.2 %>% filter(contaminant=="TRUE") %>% 
+  rownames_to_column(., "OTU") %>%
+  inner_join(., constaxonomy, by="OTU")
+
+contam <- pull(contaminant_otu_prev, OTU)
+
+#------------------------------------------------------------------------------
+
+# profiles of controls after filtering contaminants identified with decontam
+
+shared1b <- read_tsv("final.mic2.opti_mcc.0.03.filter.shared", 
+                     col_types = cols(Group=col_character())) %>%
+  select(-label, -numOtus) %>% 
+  rename(sample=Group) %>% 
+  pivot_longer(cols = -sample, names_to = "otu", values_to = "count") %>%
+  filter(!(otu %in% contam)) %>%
+  group_by(sample) %>% mutate(cum_abund=(sum(count)))
+
+shared1b <- shared1b %>% group_by(sample) %>% mutate(r_abund = count/cum_abund)
+
+shared1b %>% group_by(sample) %>% summarise(n=sum(r_abund)) %>% summary()
+
+comb_genus_data_cntrl1b <- right_join(shared1b, constaxonomy, 
+                                      by=c('otu' = 'OTU'))%>%
+  group_by(sample, genus) %>%
+  summarise(agg_r_abund=sum(r_abund))%>%
+  inner_join(., meta, by='sample')%>%
+  ungroup() %>% filter(Sample_type !='RS')
+
+comb_genus_data_cntrl1b %>% group_by(sample) %>% 
+  summarise(n=sum(agg_r_abund)) %>% summary()
+
+top20_genus_cntrl1b <- comb_genus_data_cntrl1b %>%
+  group_by(genus) %>%
+  summarise(mean=mean(agg_r_abund)) %>%
+  arrange((desc(mean))) %>% 
+  top_n(20, mean) %>%
+  pull(genus) 
+
+
+top20_cntrl1b <- comb_genus_data_cntrl1b %>%
+  filter(genus %in% top20_genus_cntrl1b)
+
+top20_cntrl1b %>% group_by(sample) %>% 
+  summarise(n=sum(agg_r_abund)) %>% summary()
+
+genus_plot_cntrl1b <- top20_cntrl1b %>%
+  group_by(Time_point, genus, sample, Sample_type) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=sample, y=sum_agg_r_abund, fill=genus)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete (label=sample) +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance (Post-decontam)") +
+  scale_fill_manual(values = mycolor, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 10), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
+  facet_wrap(facets = "Sample_type", scales = "free_x")
+
+
+
+# Otu00007-Streptococcus (potential contaminant) abundance 
+# across samples and controls
+
+otu7_count <- count_data %>% group_by(sample, otu) %>% filter(otu=="Otu00007")
+
+otu7_count <- otu7_count %>% mutate(r_abund = count/cum_abund)
+
+otu7_summary_plot <- otu7_count %>% group_by(Sample_type) %>% 
+  ggplot(., aes(x=Sample_type, y=r_abund, color=Sample_type)) +
+  geom_point (position = 
+                position_jitterdodge(
+                  jitter.width = 0.2, jitter.height = 0, dodge.width = 0.8), 
+              fill = 'white', alpha=0.6, show.legend = FALSE) +
+  scale_color_manual(values = c("#FF5412", "dark blue", "red", 
+                                "green", "gold", "brown")) +
+  geom_boxplot(aes(x=Sample_type, y=r_abund, color=Sample_type),
+               alpha=0.6, outlier.colour = NA, 
+               position = position_dodge(width = 0.8), show.legend = FALSE) +
+  labs(x="Sample type",
+       y="Relative abundance (Otu00007-Streptococcus)") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+  
+
+# summary of read counts of samples and controls post-filter
+
+shared2 <- read_tsv("final.mic2.opti_mcc.0.03.filter.shared", 
+                    col_types = cols(Group=col_character())) %>%
+  select(-label, -numOtus) %>% 
+  rename(sample=Group) %>% 
+  pivot_longer(cols = -sample, names_to = "otu", values_to = "count") %>%
+  filter(!(otu %in% contam), otu != "Otu00007") %>%
+  group_by(sample) %>% mutate(cum_abund=(sum(count)))
+
+shared2$sample <- recode(shared2$sample, 
+                         Mock1_S268 = "Mock3", Mock2_S269 = "Mock4", 
+                         mock5 = "Mock5", mock6 = "Mock6", mock7 = "Mock7")
+
+
+count_data2 <- inner_join(shared2, meta, by = "sample") 
+
+count_data2 <- count_data2 %>% group_by(sample) %>% 
+  distinct(sample, .keep_all = TRUE)
+
+count_plot2 <- count_data2 %>% group_by(sample, Sample_type) %>% 
+  ggplot(., aes(x=Sample_type, y=cum_abund, color=Sample_type)) +
+  geom_point (position = 
+                position_jitterdodge(
+                  jitter.width = 0.2, jitter.height = 0, dodge.width = 0.8), 
+              fill = 'white', alpha=0.6, show.legend = FALSE) +
+  scale_color_manual(values = c("#FF5412", "dark blue", "red", 
+                                "green", "gold", "brown")) +
+  geom_boxplot(aes(x=Sample_type, y=cum_abund, color=Sample_type),
+               alpha=0.6, outlier.colour = NA, 
+               position = position_dodge(width = 0.8), show.legend = FALSE) +
+  labs(x="Sample type",
+       y="Read count (Post-filter)", tag = "c") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+
+
+
+# genus profiles of controls post-filtering
+
+shared2a <- shared2 %>% group_by(sample) %>% mutate(r_abund = count/cum_abund)
+
+shared2a %>% group_by(sample) %>% summarise(n=sum(r_abund)) %>% summary()
+
+comb_genus_data_cntrl2 <- right_join(shared2a, constaxonomy, 
+                                     by=c('otu' = 'OTU'))%>%
+  group_by(sample, genus) %>%
+  summarise(agg_r_abund=sum(r_abund))%>%
+  inner_join(., meta, by='sample')%>%
+  ungroup() %>% filter(Sample_type !='RS')
+
+comb_genus_data_cntrl2 %>% group_by(sample) %>% 
+  summarise(n=sum(agg_r_abund)) %>% summary()
+
+top20_genus_cntrl2 <- comb_genus_data_cntrl2 %>%
+  group_by(genus) %>%
+  summarise(mean=mean(agg_r_abund)) %>%
+  arrange((desc(mean))) %>% 
+  top_n(20, mean) %>%
+  pull(genus) 
+
+top20_cntrl2 <- comb_genus_data_cntrl2 %>%
+  filter(genus %in% top20_genus_cntrl2)
+
+top20_cntrl2 %>% group_by(sample) %>% 
+  summarise(n=sum(agg_r_abund)) %>% summary()
+
+genus_plot_cntrl2 <- top20_cntrl2 %>%
+  group_by(Time_point, genus, sample, Sample_type) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=sample, y=sum_agg_r_abund, fill=genus)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete (label=sample) +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance (Post-filter)", tag = "d") +
+  scale_fill_manual(values = mycolor, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 10),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
+  facet_wrap(facets = "Sample_type", scales = "free_x")
+
+
+
+
+# combine count and genus profile plots pre- and post-filter
+
+library(patchwork)
+
+qc_prefilter <- count_plot1 + genus_plot_cntrl1 +plot_layout(widths = c(1,2))
+
+qc_postfilter <- count_plot2 + genus_plot_cntrl2 +plot_layout(widths = c(1,2))
+
+QC_plots <- qc_prefilter / qc_postfilter
+
+
+
+```
+
+
+```{r final profiles of samples, echo=TRUE}
+
+#genus profiles 
+
+shared <- read_tsv("final.mic2.opti_mcc.0.03.filter.shared", 
+                   col_types = cols(Group=col_character())) %>%
+  select(-label, -numOtus) %>% 
+  rename(sample=Group) %>%
+  pivot_longer(cols = -sample, names_to = "otu", values_to = "count") %>%
+  filter(!(otu %in% contam), otu != "Otu00007")%>% 
+  group_by(sample) %>% mutate(cum_abund=(sum(count)))
+
+shared$sample <- recode(shared$sample, 
+                        Mock1_S268 = "Mock3", Mock2_S269 = "Mock4", 
+                        mock5 = "Mock5", mock6 = "Mock6", mock7 = "Mock7")
+
+shared <- shared %>% group_by(sample) %>% mutate(r_abund = count/cum_abund)
+
+shared %>% group_by(sample) %>% summarise(n=sum(r_abund)) %>% summary()
+
+comb_genus_data <- inner_join(shared, constaxonomy, by=c('otu' = 'OTU')) %>%
+  group_by(sample, genus) %>%
+  summarise(agg_r_abund=sum(r_abund))%>%
+  inner_join(., metadata)%>%
+  ungroup() %>% filter(Sample_type =='RS')
+
+comb_genus_data %>% group_by(sample) %>% 
+  summarise(n=sum(agg_r_abund)) %>% summary()
+
+
+top20_genus <- comb_genus_data %>%
+  group_by(genus) %>%
+  summarise(mean=mean(agg_r_abund)) %>%
+  arrange((desc(mean))) %>% 
+  top_n(20, mean) %>%
+  pull(genus) 
+
+top20 <- comb_genus_data %>%
+  filter(genus %in% top20_genus)
+
+top20 %>% group_by(sample) %>% summarise(n=sum(agg_r_abund)) %>% summary()
+
+top20$Time_point <- factor(top20$Time_point, levels = c("day_0", "day_6", 
+                                                        "day_28",
+                                                        "month_4", "year_3"))
+
+genus_plot <- top20 %>%
+  group_by(Treatment, Time_point, genus) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=Treatment, y=sum_agg_r_abund, fill=genus)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete (limits = c("Azi", "Placebo")) +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance") +
+  scale_fill_manual(values = mycolor, aesthetics = c( "color", "fill"))+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+  facet_wrap(facets = "Time_point", scales = "free")
+
+
+genus_plot
+
+
+#phylum profiles
+
+comb_phy_data <- inner_join(shared, constaxonomy, by=c('otu' = 'OTU')) %>%
+  group_by(sample, phylum) %>%
+  summarise(agg_r_abund=sum(r_abund))%>%
+  inner_join(., metadata)%>%
+  ungroup() %>% filter(Sample_type =='RS')
+
+comb_phy_data %>% group_by(sample) %>% 
+  summarise(n=sum(agg_r_abund)) %>% summary()
+
+top10_phy <- comb_phy_data %>%
+  group_by(phylum) %>%
+  summarise(mean=mean(agg_r_abund)) %>%
+  arrange((desc(mean))) %>% 
+  top_n(10, mean) %>%
+  pull(phylum) 
+
+top10 <- comb_phy_data %>%
+  filter(phylum %in% top10_phy)
+
+top10 %>% group_by(sample) %>% summarise(n=sum(agg_r_abund)) %>% summary()
+
+top10$Time_point <- factor(top10$Time_point, levels = c("day_0", "day_6", 
+                                                        "day_28",
+                                                        "month_4", "year_3"))
+
+phylum_plot <- top10 %>%
+  group_by(Treatment, Time_point, phylum) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=Treatment, y=sum_agg_r_abund, fill=phylum)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete (limits = c("Azi", "Placebo")) +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance") +
+  scale_fill_manual(values = mycolor, aesthetics = c( "color", "fill"))+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+  facet_wrap(facets = "Time_point", scales = "free")
+
+phylum_plot
+
+
+#-----------------------------------------------------------------------------
+# prevotella abundance over time
+
+prevo_timeseries <- comb_genus_data %>% filter(genus == "Prevotella" | 
+                                                  genus=="Prevotella_6" |
+                                                  genus=="Prevotella_9")
+
+prevo_timeseries$Time_point <- factor(prevo_timeseries$Time_point, 
+                                      levels = c("day_0", "day_6", "day_28",
+                                                 "month_4", "year_3"))
+
+prevo_line_plot <- prevo_timeseries %>% 
+  group_by(genus, Time_point, Treatment)%>%
+  summarise(mean_r_abund=mean(agg_r_abund))%>%
+  ggplot(aes(x=Time_point, y=mean_r_abund, group=genus, color=genus)) +
+  geom_line() + geom_point()+
+  scale_color_manual(values = c("gold", "#FF6501", "#B78326"))+
+  theme_classic()+
+  scale_y_continuous(labels = scales::percent)+
+  labs(x= " ", y= "mean relative abundance") +
+  facet_wrap(facets = "Treatment")
+
+prevo_line_plot
+
+
+#-----------------------------------------------------------------------------
+
+# abundance of Anaerococcus, Ezakiella and Peptoniphilus in samples vs controls 
+
+flagged_taxa <- right_join(shared2, constaxonomy, by=c('otu' = 'OTU')) %>%
+  inner_join(., meta, by="sample")%>%
+  filter(genus=="Anaerococcus"| genus=="Ezakiella"| genus=="Peptoniphilus") %>%
+  filter(count >= 3)
+
+flagged_taxa$Time_point <- 
+  factor(flagged_taxa$Time_point, levels = c("day_0", "day_6", "day_28", 
+                                             "month_4", "year_3", "mock", "NEC", 
+                                             "NTC", "fctrl_main_study", 
+                                             "fctrl_year3"))
+
+flagged_taxa_plot <- flagged_taxa %>% 
+  group_by(sample, Sample_type, Time_point) %>% 
+  ggplot(., aes(x=sample, y=count, color=genus)) +
+  geom_point (position = 
+                position_jitterdodge(
+                  jitter.width = 0.2, jitter.height = 0, dodge.width = 0.8), 
+              fill = 'white', alpha=0.6, show.legend = TRUE) +
+  scale_color_manual(values = c("#FF5412", "dark blue", "gold")) +
+  
+  labs(x="Sample time-point and controls",
+       y="Abundance", tag = "a") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 10), axis.text.x = element_blank())+
+  facet_wrap(facets = "Time_point", scales = "free_x")
+
+flagged_taxa_plot
+
+
+flagged_taxa_cum <- comb_genus_data %>% 
+  filter(genus=="Anaerococcus" | genus=="Ezakiella" | genus=="Peptoniphilus")
+
+flagged_taxa_cum_plot <- flagged_taxa_cum %>% 
+  group_by(genus, Time_point, Treatment)%>%
+  summarise(mean_r_abund=mean(agg_r_abund))%>%
+  ggplot(aes(x=Time_point, y=mean_r_abund, group=genus, color=genus)) +
+  geom_line() + geom_point()+
+  scale_color_manual(values = c("#FF5412", "dark blue", "gold"))+
+  theme_classic()+
+  scale_y_continuous(labels = scales::percent)+
+  labs(x= " ", y= "mean relative abundance", tag = "b") +
+  facet_wrap(facets = "Treatment")
+
+flagged_taxa_cum_plot
+
+flg_comb_plots <- flagged_taxa_plot / flagged_taxa_cum_plot + 
+  plot_layout(heights = c(2, 1))
+
+flg_comb_plots
+
+
+
+```
+
+```{r alpha diversity analysis, echo=TRUE}
+
+library(vegan)
+
+phylo_shared <- 
+  phyloseq(import_mothur(mothur_shared_file = 
+                           "final.mic2.opti_mcc.0.03.filter.shared"))%>%
+  as.matrix()
+
+not_contam <- shared %>% 
+  dplyr::filter(!(otu%in%contam), otu !="Otu00007") %>% pull(otu)
+
+phylo_filter_shared <- prune_taxa(not_contam, phylo_shared)
+
+metadata_comtype <- read_tsv("subsample_metadata_child.txt") %>%
+  column_to_rownames(var = "group")
+
+complete_meta <- metadata_comtype %>% rownames_to_column(var = "sample") %>%
+  select(sample, partition) %>% right_join(., metadata)
+
+phylo_metadata <- complete_meta %>% 
+  dplyr::filter(Sample_type =="RS") %>% column_to_rownames(var = "sample")
+
+phylo_metadata$Time_point <- recode(phylo_metadata$Time_point, day_6 = "day_06")
+
+phylo_taxa <- 
+  import_mothur(mothur_constaxonomy_file = 
+                  "final.mic2.opti_mcc.0.03.cons.pick.taxonomy")
+
+final_phylo <- phyloseq(otu_table(phylo_filter_shared), 
+                        sample_data(phylo_metadata), tax_table(phylo_taxa))
+
+final_phylo_rare <- rarefy_even_depth(final_phylo, sample.size = 3000, 
+                                      replace = FALSE,
+                                      trimOTUs = TRUE, rngseed = 21965)
+
+
+final_subsamp_meta <- sample_data(final_phylo_rare)%>% 
+  as_tibble(rownames="sample") 
+
+subsample_shared <- as(otu_table(final_phylo_rare), 'matrix') 
+
+subsample_shared2 <- t(subsample_shared) %>% as.data.frame() %>% 
+  rownames_to_column(var = "sample") %>%
+  pivot_longer(cols = -sample, names_to = "otu", values_to = "count")
+
+final_alpha <- subsample_shared2 %>% dplyr::group_by(sample)%>%
+  summarise(npshannon = diversity(count, index = "shannon"),
+            sobs = specnumber(count))  %>%
+  inner_join(., final_subsamp_meta)
+
+
+#------------------------------------------------------------------------------
+# alpha diversity stats
+
+# shannon diversity between arms per time-point 
+
+d6_alpha <- final_alpha %>%filter(Time_point=="day_06")
+
+d6_shann_wilcox <- wilcox.test(npshannon ~ Treatment, data = d6_alpha, 
+                               correct=TRUE,
+                               alternative = "two.sided", conf.int=TRUE)
+d6_shann_wilcox
+
+
+d28_alpha <- final_alpha %>% filter(Time_point == "day_28")
+
+d28_shann_wilcox <-  wilcox.test(npshannon ~ Treatment, data = d28_alpha,
+                             alternative= "two.sided", 
+                             correct=TRUE, conf.int = TRUE)
+d28_shann_wilcox
+
+
+m4_alpha <- final_alpha %>% filter(Time_point == "month_4")
+
+m4_shann_wilcox <-  wilcox.test(npshannon ~ Treatment, data = m4_alpha,
+                              alternative= "two.sided", 
+                              correct=TRUE, conf.int = TRUE)
+m4_shann_wilcox
+
+
+y3_alpha <- final_alpha %>% filter(Time_point == "year_3")
+
+y3_shann_wilcox <-  wilcox.test(npshannon ~ Treatment, data = y3_alpha,
+                                alternative= "two.sided", 
+                                correct=TRUE, conf.int = TRUE)
+y3_shann_wilcox
+
+
+# OTU richness between arms per time-point 
+
+d6_rich_wilcox <- wilcox.test(sobs ~ Treatment, data = d6_alpha, correct=TRUE,
+                              alternative = "two.sided", conf.int = TRUE)
+d6_rich_wilcox
+
+
+d28_rich_wilcox <-  wilcox.test(sobs ~ Treatment, data = d28_alpha,
+                                 alternative= "two.sided", 
+                                correct=TRUE, conf.int = TRUE)
+d28_rich_wilcox
+
+
+m4_rich_wilcox <-  wilcox.test(sobs ~ Treatment, data = m4_alpha,
+                        alternative= "two.sided", 
+                        correct=TRUE, conf.int = TRUE)
+m4_rich_wilcox
+
+
+y3_rich_wilcox <-  wilcox.test(sobs ~ Treatment, data = y3_alpha,
+                               alternative= "two.sided", 
+                               correct=TRUE, conf.int = TRUE)
+y3_rich_wilcox
+
+
+# Shannon diversity by age
+
+library(lmerTest)
+library(emmeans)
+
+# this was used to just get mean and confidence intervals for shannon per time_point for each arm
+
+alpha_all <- lmerTest::lmer(npshannon ~ Time_point + Treatment + 
+                              Treatment:Time_point + (1|Rand_No), 
+                            data = final_alpha)
+
+alpha_all %>% broom.mixed::tidy()
+
+alpha_time_comp <- emmeans(alpha_all, pairwise ~ Treatment | Time_point, 
+                           adjst="Tukey")
+alpha_time_comp
+
+
+# Shannon diversity between successive time-points Azi 
+
+alpha_azi <- final_alpha %>% filter(Treatment=="Azi")
+
+alpha_azi_lm <- lmerTest::lmer(npshannon ~ Time_point + Mother_Ethnicity + 
+                                 Delivery_season + (1|Rand_No), 
+                               data = alpha_azi)
+
+alpha_azi_lm %>% broom.mixed::tidy()
+
+
+d28_vs_all_azi <- emmeans(alpha_azi_lm, trt.vs.ctrlk ~ Time_point, ref = 3, 
+                          adjst="Tukey") #day-28 vs all
+
+d28_vs_all_azi$contrasts
+
+m4_vs_all_azi <- emmeans(alpha_azi_lm, trt.vs.ctrlk ~ Time_point, ref = 4, 
+                         adjst="Tukey") #month-4 vs all
+
+m4_vs_all_azi$contrasts
+
+
+# Shannon diversity between successive time-points Placebo 
+
+alpha_placebo <- final_alpha %>% filter(Treatment=="Placebo")
+
+alpha_Placebo_lm <- lmerTest::lmer(npshannon ~ Time_point + Mother_Ethnicity + 
+                                     Delivery_season + (1|Rand_No), 
+                                   data = alpha_placebo)
+
+alpha_Placebo_lm %>% broom.mixed::tidy()
+
+
+d28_vs_all_Placebo <- emmeans(alpha_Placebo_lm, trt.vs.ctrlk ~ Time_point, 
+                              ref = 3, adjst="Tukey") #day-28 vs all
+
+d28_vs_all_Placebo$contrasts
+
+m4_vs_all_Placebo <- emmeans(alpha_Placebo_lm, trt.vs.ctrlk ~ Time_point, 
+                             ref = 4, adjst="Tukey") #month-4 vs all
+
+m4_vs_all_Placebo$contrasts
+
+
+#------------------------------------------------------------------------------
+#plot shannon diversity and richness
+
+library(ggpubr)
+
+
+final_alpha2 <- final_alpha %>% 
+  filter(Sample_type =='RS', Time_point!="day_0")
+
+final_alpha2$Time_point <- recode(final_alpha2$Time_point, day_06 = "day_6")
+
+final_alpha2$Time_point <- factor(final_alpha2$Time_point, 
+                                 levels = c("day_6",
+                                            "day_28", "month_4", "year_3"))
+
+
+# shannon diversity and richness between treatment arms 
+
+shannon <- ggplot(final_alpha2, 
+                  aes(x=Time_point, y=npshannon, color=Treatment)) + 
+  geom_point (position = 
+                position_jitterdodge(
+                  jitter.width = 0.2, jitter.height = 0, dodge.width = 0.8), 
+              fill = 'white', alpha=0.6, show.legend = FALSE) +
+  scale_color_manual(values = c("#FF5412", "dark blue")) +
+  geom_boxplot(aes(x=Time_point, y=npshannon, color=Treatment),
+               alpha=0.6, outlier.colour = NA, 
+               position = position_dodge(width = 0.8), show.legend = FALSE) +
+  labs(x="Time-point",
+       y="Shannon index", tag = "a") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12)) +
+  stat_compare_means(aes(group=Treatment), 
+                     method = "wilcox.test", label = "p.format",
+                     show.legend = FALSE, label.y = c(3.4, 3.6, 4.0, 4.5))
+
+azi_alpha <- final_alpha2 %>% filter(Treatment=="Azi")
+azi_kuskal <- kruskal.test(azi_alpha$npshannon ~ azi_alpha$Time_point)
+
+
+pb_alpha <- final_alpha2 %>% filter(Treatment=="Placebo")
+pb_kuskal <- kruskal.test(pb_alpha$npshannon ~ pb_alpha$Time_point)
+
+
+shann_age_label <- 
+  data.frame(label = c("Azi: all time-points [p < 2.2e-16]", 
+                       "Placebo: all time-points [p < 2.2e-16]"),
+                              Time_point = c("day_28"),
+                              Treatment = c("Azi", "Placebo"),
+                              axis1 = c(5.0, 4.8))
+
+shannon_all <- shannon + geom_text(mapping = aes(x= , y = axis1,
+                                                 label = label, 
+                                                 color = Treatment),
+                                   data = shann_age_label, show.legend = FALSE)
+
+shannon_all
+
+
+richness <- ggplot(final_alpha2, aes(x=Time_point, y=sobs, color=Treatment)) +
+  geom_point (position = 
+                position_jitterdodge(
+                  jitter.width = 0.2, jitter.height = 0, dodge.width = 0.8), 
+              fill = 'white', alpha=0.6, show.legend = FALSE) +
+  scale_color_manual(values = c("#FF5412", "dark blue")) +
+  geom_boxplot(aes(x=Time_point, y=sobs, color=Treatment),
+               alpha=0.6, outlier.colour = NA,
+               position = position_dodge(width = 0.8), show.legend = TRUE) +
+  scale_y_continuous(breaks = c(0,40,80,120,160,200,240,280))+
+  labs(x="Time-point",
+       y="OTUs observed", tag = "b") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12)) +
+  stat_compare_means(aes(group=Treatment), method = "wilcox.test", 
+                     label.y = c(85, 95, 120, 240), label = "p.format")
+
+richness
+
+shannon_richness <-  shannon_all + richness
+shannon_richness
+
+
+```
+
+```{r beta diversity analysis, echo=TRUE}
+
+otu_data <- as(otu_table(final_phylo_rare), 'matrix') %>% t()
+
+beta_div_bray <- vegdist(otu_data, method = "bray")
+
+beta_div_bray <- as.matrix(beta_div_bray) %>% 
+  t() %>% as.data.frame() %>% rownames_to_column(var = "sample")
+
+sample_data <- sample_data(final_phylo_rare) %>% as_tibble(rownames="sample") 
+
+meta_dist <- inner_join(sample_data, beta_div_bray, by="sample")
+
+all_dist <- meta_dist %>% select(all_of(.[["sample"]])) %>% as.dist()
+
+day6_dist <- meta_dist %>% filter(Time_point=="day_06")%>% 
+  select(all_of(.[["sample"]])) %>% as.dist()
+
+day28_dist <- meta_dist %>% filter(Time_point=="day_28")%>% 
+  select(all_of(.[["sample"]])) %>% as.dist()
+
+month4_dist <- meta_dist %>% filter(Time_point=="month_4")%>% 
+  select(all_of(.[["sample"]])) %>% as.dist()
+
+year3_dist <- meta_dist %>% filter(Time_point=="year_3")%>% 
+  select(all_of(.[["sample"]])) %>% as.dist()
+  
+
+
+sample_data_day6 <- sample_data %>% filter(Time_point=="day_06") 
+
+sample_data_day28 <- sample_data %>% filter(Time_point=="day_28")
+
+sample_data_month4 <- sample_data  %>% filter(Time_point=="month_4")
+
+sample_data_year3 <- sample_data  %>% filter(Time_point=="year_3")
+
+
+
+# comparison of overall community composition between arms----------------------
+
+adonis_d6 <- adonis2(day6_dist ~ Treatment + Mother_Ethnicity + Delivery_season, 
+                          data = sample_data_day6, 
+                     permutations = with(sample_data_day6, how(nperm=999)))
+adonis_d6
+
+
+adonis_d28 <- adonis2(day28_dist ~ Treatment + Mother_Ethnicity + 
+                        Delivery_season, 
+                          data = sample_data_day28, 
+                      permutations = with(sample_data_day28, how(nperm=999)))
+adonis_d28
+
+adonis_d28_trtnseason <- adonis2(day28_dist ~ Treatment*Delivery_season, 
+                           data = sample_data_day28, 
+                           permutations = 
+                             with(sample_data_day28, 
+                                  how(nperm=999, blocks=Treatment)))
+
+adonis_d28_trtnseason
+
+adonis_m4 <- adonis2(month4_dist ~ Treatment + Mother_Ethnicity + 
+                       Delivery_season, 
+                          data = sample_data_month4, 
+                     permutations = with(sample_data_month4, how(nperm=999)))
+adonis_m4
+
+adonis_yr3 <- adonis2(year3_dist ~ Treatment + Mother_Ethnicity + 
+                        Delivery_season, 
+                          data = sample_data_year3, 
+                      permutations = with(sample_data_year3, how(nperm=999)))
+adonis_yr3
+
+
+# comparison of overall community composition by age---------------------------
+
+#both groups combined
+
+adonis_all_ages <- adonis2(all_dist ~ Time_point, 
+                          data = sample_data, na.rm = TRUE,
+                      permutations = with(sample_data, 
+                                          how(nperm=999, blocks=Rand_No)))
+adonis_all_ages
+
+meta_d6_d28 <- meta_dist %>% 
+  filter(Time_point=="day_06" | Time_point =="day_28")
+
+d6_d28_dist <- meta_d6_d28 %>% select(all_of(.[["sample"]])) %>% as.dist()
+
+adonis_d6d28 <- adonis2(d6_d28_dist ~ Time_point, 
+                          data = meta_d6_d28, 
+                          permutations = with(meta_d6_d28, 
+                                              how(nperm=999, blocks=Rand_No)))
+adonis_d6d28
+
+
+meta_d28_m4 <- meta_dist %>%
+  filter(Time_point=="day_28" | Time_point =="month_4")
+
+d28_m4_dist <- meta_d28_m4 %>% select(all_of(.[["sample"]])) %>% as.dist()
+
+adonis_d28m4 <- adonis2(d28_m4_dist ~ Time_point, 
+                          data = meta_d28_m4, 
+                          permutations = with(meta_d28_m4, 
+                                              how(nperm=999, blocks=Rand_No)))
+adonis_d28m4
+
+
+meta_m4_yr3 <- meta_dist %>% 
+  filter(Time_point=="month_4" | Time_point =="year_3")
+
+m4_yr3_dist <- meta_m4_yr3 %>% select(all_of(.[["sample"]])) %>% as.dist()
+
+adonis_m4yr3 <- adonis2(m4_yr3_dist ~ Time_point, 
+                          data = meta_m4_yr3, 
+                          permutations = with(meta_m4_yr3, 
+                                              how(nperm=999, blocks=Rand_No)))
+adonis_m4yr3
+
+
+
+# ordination of overall communitity composition------------------------
+
+subset_phylo <- subset_samples(final_phylo_rare, Time_point != "day_0")
+
+ord_bray <- ordinate(subset_phylo, method = "NMDS", distance = "bray")
+
+nmd_plot <- plot_ordination(subset_phylo, 
+                            ordination = ord_bray, color = "Treatment")+
+  geom_point(size=1, alpha=0.6) +
+  scale_color_manual(values = c("#FF5412", "dark blue")) +
+  stat_ellipse(aes(x=NMDS1, y=NMDS2, linetype=Treatment)) +
+  coord_fixed() +
+  labs(tag = "b")+
+  theme_classic() +
+  theme(axis.text = element_text(size = 12))+
+  facet_wrap(facets = "Time_point", 
+             labeller = labeller( c("day_06", "day_28", "month_4", "year_3"))) 
+
+nmd_plot
+
+nmds_labels <- data.frame(label=c("R^2 = 0.08, p = 0.001", 
+                                  "R^2 = 0.02, p = 0.072", 
+                                  "R^2 = 0.01, p = 0.608", 
+                                  "R^2 = 0.01, p = 0.827"),
+                          Time_point = c("day_06", "day_28", 
+                                         "month_4", "year_3"),
+                          Treatment=c("Azi", "Placebo"),
+                          NMDS1 = c(0.5, 0.5, 0.5, 0.5),
+                          NMDS2 = c(1.5, 1.5, 1.5, 1.5))
+
+nmd_plot_ann <- nmd_plot + geom_text(mapping = aes(x=NMDS1, y=NMDS2, 
+                                                   label = label, color=NULL), 
+                     data = nmds_labels, show.legend = FALSE) 
+nmd_plot_ann
+
+nmd_plot_age <- 
+  plot_ordination(subset_phylo, ordination = ord_bray, color = "Time_point")+
+  geom_point(size=1, alpha=0.6) +
+  scale_color_manual(values = c("#778A35", "#DAD870", "#DD9927", "#FF6501")) +
+  stat_ellipse(aes(x=NMDS1, y=NMDS2, linetype=Time_point)) +
+  coord_fixed() +
+  labs(tag = "a")+
+  theme_classic()+
+  theme(axis.text = element_text(size = 12))
+  
+nmd_plot_age
+
+nmd_age_label <- data.frame(label=c("all time-points [R^2 = 0.234, p < 0.001]",
+                                    "day6-day28 [R^2 = 0.060, p < 0.001]",
+                                    "day28-month4 [R^2 = 0.023, p < 0.001]",
+                                    "month4-year3 [R^2 = 0.240, p < 0.001]"),
+                             Time_point=c("day_06", "day_28", 
+                                          "month_4", "year_3"),
+                          NMDS1 = c(0.54, 0.54, 0.58, 0.58),
+                          NMDS2 = c(1.5, 1.4, 1.3, 1.2))
+
+nmd_plot_age_ann <- nmd_plot_age + geom_text(mapping = aes(x=NMDS1, y=NMDS2, 
+                                       label = label, color=NULL), 
+                     data = nmd_age_label, show.legend = FALSE, size = 3) 
+
+nmd_age_treament <- nmd_plot_age_ann+nmd_plot_ann
+
+nmd_age_treament
+
+nmd_plot_ethn <- plot_ordination(subset_phylo, ordination = ord_bray, 
+                                 color = "Mother_Ethnicity")+
+  geom_point(size=1, alpha=0.6) +
+  scale_color_manual(values = c("#778A35", "#DAD870", "#DD9927", 
+                                "#FF6501", "black")) +
+  stat_ellipse(aes(x=NMDS1, y=NMDS2, linetype=Mother_Ethnicity)) +
+  coord_fixed() +
+  theme_classic() +
+  theme(axis.text = element_text(size = 12))+
+  facet_wrap(facets = "Time_point") 
+
+
+nmd_ethn_label <- data.frame(label=c("R^2 = 0.05, p < 0.175", 
+                                     "R^2 = 0.04, p < 0.360",
+                                     "R^2 = 0.04, p < 0.477",
+                                     "R^2 = 0.05, p < 0.199"),
+                             Time_point = c("day_06", "day_28", 
+                                            "month_4", "year_3"),
+                             Treatment=c("Azi", "Placebo"),
+                             NMDS1 = c(0, 0, 0, 0),
+                             NMDS2 = c(1.8, 1.8, 1.8, 1.8))
+
+nmd_ethn <- nmd_plot_ethn + geom_text(mapping = aes(x=NMDS1, y=NMDS2, 
+                                          label = label, color=NULL), 
+                            data = nmd_ethn_label, show.legend = FALSE) 
+
+
+
+nmd_plot_season <- plot_ordination(subset_phylo, ordination = ord_bray, 
+                                   color = "Delivery_season")+
+  geom_point(size=1, alpha=0.6) +
+  scale_color_manual(values = c("#FFDF22", "#778A35")) +
+  stat_ellipse(aes(x=NMDS1, y=NMDS2, linetype=Delivery_season)) +
+  coord_fixed() +
+  theme_classic() +
+  theme(axis.text = element_text(size = 12))+
+  facet_wrap(facets = "Time_point") 
+
+
+nmd_cson_label <- data.frame(label=c("R^2 = 0.01, p < 0.552", 
+                                    "R^2 = 0.02, p < 0.089",
+                                    "R^2 = 0.01, p < 0.379",
+                                    "R^2 = 0.01, p < 0.566"),
+                            Time_point = c("day_06", "day_28", 
+                                           "month_4", "year_3"),
+                            Treatment=c("Azi", "Placebo"),
+                            NMDS1 = c(0.5, 0.5, 0.5, 0.5),
+                            NMDS2 = c(1.5, 1.5, 1.5, 1.5))
+
+nmd_season <- nmd_plot_season + geom_text(mapping = aes(x=NMDS1, y=NMDS2, 
+                                       label = label, color=NULL), 
+                         data = nmd_cson_label, show.legend = FALSE) 
+
+
+
+```
+
+```{r differential abundance analysis, echo=TRUE, warning=FALSE}
+
+library(metagenomeSeq)
+
+diff_meta <- sample_data %>% AnnotatedDataFrame()
+
+mrexp_obj <- phyloseq_to_metagenomeSeq(final_phylo_rare)
+
+
+taxa <- constaxonomy %>% select(-Size)
+taxa$annOTU <- base::paste(taxa$OTU, taxa$genus, sep = "_")
+
+
+features_to_keep <- which(rowSums(mrexp_obj) >= 1)
+
+
+#day6 
+
+d6_samples <- which(pData(mrexp_obj)$Time_point == "day_06")
+
+mrexp_obj_day6 <- mrexp_obj[features_to_keep, d6_samples]
+
+mrexp_obj_day6 = filterData(mrexp_obj_day6, present = 30, depth = 3)
+
+mrexp_obj_day6 <- cumNorm(mrexp_obj_day6, p=0.75)
+
+d6_meta <- pData(mrexp_obj_day6) 
+
+d6_meta$Treatment <- factor(d6_meta$Treatment, levels = c("Placebo", "Azi"))
+
+d6_model <- model.matrix(~ 1 + Treatment, data = d6_meta)
+
+d6_fitft = fitFeatureModel(obj = mrexp_obj_day6, mod = d6_model)
+
+
+head(MRcoefs(d6_fitft))
+
+logFC_d6 <- MRcoefs(d6_fitft, number = nrow(mrexp_obj_day6)) %>% 
+  rownames_to_column()%>%
+  plyr::rename(c("rowname"="OTU"))%>% inner_join(.,taxa, by ="OTU")
+
+sig_features_d6 <- logFC_d6 %>% filter(adjPvalues < 0.1) %>% arrange(adjPvalues)
+
+sig_features_d6
+
+
+#presence-absence between treatment day6
+
+d6_groups = pData(mrexp_obj_day6)$Treatment
+
+d6_pre_abs = fitPA(mrexp_obj_day6, cl=d6_groups) %>% rownames_to_column()%>%
+  plyr::rename(c("rowname"="OTU"))%>% inner_join(.,taxa, by ="OTU")%>%
+  filter(adjPvalues < 0.1) %>% arrange(adjPvalues)
+
+head(d6_pre_abs)
+
+
+
+#day28
+
+d28_samples <- which(pData(mrexp_obj)$Time_point == "day_28")
+
+mrexp_obj_day28 <- mrexp_obj[features_to_keep, d28_samples]
+
+mrexp_obj_day28 = filterData(mrexp_obj_day28, present = 30, depth = 3)
+
+mrexp_obj_day28 <- cumNorm(mrexp_obj_day28, p=0.75)
+
+d28_meta <- pData(mrexp_obj_day28)
+
+d28_meta$Treatment <- factor(d28_meta$Treatment, levels = c("Placebo", "Azi"))
+
+d28_model <- model.matrix(~ 1 + Treatment, data = d28_meta)
+
+d28_fitft = fitFeatureModel(obj = mrexp_obj_day28, mod = d28_model)
+
+
+head(MRcoefs(d28_fitft))
+
+logFC_d28 <- MRcoefs(d28_fitft, number = nrow(mrexp_obj_day28))%>% 
+  rownames_to_column()%>%
+  plyr::rename(c("rowname"="OTU"))%>%inner_join(., taxa, by = "OTU")
+
+sig_features_d28 <- logFC_d28 %>% filter(adjPvalues < 0.1) %>% 
+  arrange(adjPvalues)
+
+sig_features_d28
+
+
+#presence-absence between treatment day28
+
+d28_groups = pData(mrexp_obj_day28)$Treatment
+
+d28_pre_abs = fitPA(mrexp_obj_day28, cl=d28_groups) %>% rownames_to_column()%>%
+  plyr::rename(c("rowname"="OTU"))%>% inner_join(.,taxa, by ="OTU")%>%
+  filter(adjPvalues < 0.1) %>% arrange(adjPvalues)
+
+head(d28_pre_abs)
+
+
+
+#month_4
+
+m4_samples <- which(pData(mrexp_obj)$Time_point == "month_4")
+
+mrexp_obj_m4 <- mrexp_obj[features_to_keep, m4_samples]
+
+mrexp_obj_m4 = filterData(mrexp_obj_m4, present = 30, depth = 3)
+
+mrexp_obj_m4 <- cumNorm(mrexp_obj_m4, p=0.75)
+
+m4_meta <- pData(mrexp_obj_m4)
+
+m4_meta$Treatment <- factor(m4_meta$Treatment, levels = c("Placebo", "Azi"))
+
+m4_model <- model.matrix(~ 1 + Treatment, data = m4_meta)
+
+m4_fitft = fitFeatureModel(obj = mrexp_obj_m4, mod = m4_model)
+
+head(MRcoefs(m4_fitft))
+
+logFC_m4 <- MRcoefs(m4_fitft, number = nrow(mrexp_obj_m4)) %>% 
+  rownames_to_column()%>%
+  plyr::rename(c("rowname"="OTU"))%>% inner_join(.,taxa, by ="OTU")
+
+sig_features_m4 <- logFC_m4 %>% filter(adjPvalues < 0.1) %>% 
+  arrange(adjPvalues)
+
+sig_features_m4
+
+
+#year_3
+
+yr3_samples <- which(pData(mrexp_obj)$Time_point == "year_3")
+
+mrexp_obj_yr3 <- mrexp_obj[features_to_keep, yr3_samples]
+
+mrexp_obj_yr3 = filterData(mrexp_obj_yr3, present = 30, depth = 3)
+
+mrexp_obj_yr3 <- cumNorm(mrexp_obj_yr3, p=0.75)
+
+yr3_meta <- pData(mrexp_obj_yr3)
+
+yr3_meta$Treatment <- factor(yr3_meta$Treatment, levels = c("Placebo", "Azi"))
+
+yr3_model <- model.matrix(~ 1 + Treatment, data = yr3_meta)
+
+yr3_fitft = fitFeatureModel(obj = mrexp_obj_yr3, mod = yr3_model)
+
+head(MRcoefs(yr3_fitft))
+
+logFC_yr3 <- MRcoefs(yr3_fitft, number = nrow(mrexp_obj_yr3)) %>% 
+  rownames_to_column()%>%
+  plyr::rename(c("rowname"="OTU"))%>% inner_join(.,taxa, by ="OTU")
+
+sig_features_yr3 <- logFC_yr3 %>% filter(adjPvalues < 0.1) %>% 
+  arrange(adjPvalues)
+
+sig_features_yr3
+
+
+# plot differentially abundant OTUs--------------------------------------------
+
+
+d6diff_color <- ifelse(sig_features_d6$logFC < 0, "grey30", "grey70")
+
+d6_diff_plot <- ggplot(sig_features_d6, 
+                       aes(x=reorder(annOTU, logFC), y=logFC)) +
+  geom_bar(stat = "identity", fill=d6diff_color, show.legend = FALSE) +
+  geom_hline(yintercept = 0, color = 1) +
+  coord_flip() +
+  scale_y_continuous() +
+  labs(x="OTU", y= "Fold Change", tag = "a) day 6") +
+  theme(axis.title = element_text(size = 8),
+        axis.text.x = element_text(size = 4),
+        axis.text.y = element_text(size = 4)) +
+  theme_classic()
+
+
+d28diff_color <- ifelse(sig_features_d28$logFC < 0, "grey30", "grey70")
+
+d28_diff_plot <- ggplot(sig_features_d28, 
+                        aes(x=reorder(annOTU, logFC), y=logFC)) +
+  geom_bar(stat = "identity", width = 0.7, fill=d28diff_color, 
+           show.legend = FALSE) +
+  geom_hline(yintercept = 0, color = 1) +
+  coord_flip() +
+  scale_y_continuous() +
+  labs(x="OTU", y= "Fold Change", tag = "day 28") +
+  theme(axis.title = element_text(size = 8),
+        axis.text.x = element_text(size = 4),
+        axis.text.y = element_text(size = 4)) +
+  theme_classic()
+
+
+cmbplot <- (d6_diff_plot/d28_diff_plot) + expand_limits(y= seq(-4, 3, 1))+
+  scale_size_area()
+
+cmbplot
+
+
+# dynamics of key differentially abundant taxa -------------------------------
+conflicted::conflicts_prefer(dplyr::filter)
+key_taxa <- right_join(shared, constaxonomy, by=c('otu' = 'OTU')) %>%
+  inner_join(., metadata, by="sample")%>%
+  filter(otu=="Otu00001"| otu=="Otu00003"| otu=="Otu00004" |
+            otu=="Otu00015", Sample_type=="RS")
+
+key_taxa$annotated_OTU <- paste(key_taxa$otu, key_taxa$genus, sep = "_")
+
+key_taxa$Time_point <- factor(key_taxa$Time_point, 
+                              levels = c("day_0", "day_6", 
+                                         "day_28", "month_4", "year_3"))
+
+
+ktaxa_timeseries <- key_taxa %>% 
+  group_by(annotated_OTU, Time_point, Treatment)%>%
+   summarise(mean_r_abund = mean(r_abund))%>%
+  ggplot(aes(x=Time_point, y=mean_r_abund, group=Treatment, color=Treatment)) +
+  geom_smooth()+
+  scale_color_manual(values = c("#FF5412", "dark blue"))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.8))+
+  scale_y_continuous(labels = scales::percent)+
+  labs(x= " ", y= "mean relative abundance", tag = "b)") +
+  facet_wrap(facets = "annotated_OTU")
+
+ktaxa_timeseries
+
+diff_abund_plot <- cmbplot / ktaxa_timeseries + plot_layout(heights = c(1,1,2))
+
+diff_abund_plot
+
+
+#prevalence of OTUs with diff prevalence at day6 and day28---------------------
+
+
+comb_otu_data <- inner_join(shared, constaxonomy, by=c('otu' = 'OTU')) %>%
+  group_by(sample, genus) %>%
+  inner_join(., metadata)%>%
+  ungroup() %>% filter(Sample_type =='RS') %>%
+  group_by(sample)%>% filter(cum_abund >= 3000)
+
+comb_otu_data <- comb_otu_data %>% group_by(sample, otu)%>% filter(count >= 3)
+comb_otu_data$otu <- as.character(comb_otu_data$otu)
+
+comb_otu_data2 <- comb_otu_data %>% group_by(Treatment, Time_point)%>%
+ mutate(sample_size= length(unique(sample)), otu_presence=length(unique(otu)))
+
+
+d6_prev <- comb_otu_data2 %>% filter(Time_point == "day_6", otu=="Otu00004")%>%
+  group_by(Treatment, otu)%>%
+  summarise(prev=length(unique(sample))/sample_size) %>% distinct()
+
+d6_prev
+
+d28_prev <- comb_otu_data2 %>% filter(Time_point == "day_28", 
+                                      otu=="Otu00079"| otu=="Otu00093"|
+                                      otu=="Otu00017"| otu=="Otu00143"|
+                                      otu=="Otu00031"| otu=="Otu00055"|
+                                      otu=="Otu00003"| otu=="Otu00015")%>%
+  group_by(Treatment, otu)%>% 
+  summarise(prev=length(unique(sample))/sample_size)%>% distinct()
+
+d28_prev
+
+
+#relative abundance of diff abundant OTUs at day6 and day28
+
+d6_abund <- comb_otu_data %>% filter(Time_point == "day_6")%>%
+  select(sample, otu, count, Size, Treatment, genus)%>%
+  group_by(Treatment) %>% dplyr::mutate(cum_abund_arm = sum(count)) %>%
+  dplyr::mutate(rabund_arm = count/cum_abund_arm)
+
+d6_abund %>% group_by(Treatment) %>% 
+  summarise(n=sum(rabund_arm)) %>% summary() #should be equal to 1 for both arms
+
+d6_abund <- comb_otu_data %>% filter(Time_point == "day_6")%>%
+  select(sample, otu, count, Size, Treatment, genus)%>%
+  group_by(Treatment) %>% dplyr::mutate(cum_abund_arm = sum(count)) %>%
+  dplyr::mutate(rabund_arm = count/cum_abund_arm) %>%
+  filter(otu=="Otu00001" | otu=="Otu00003" | otu=="Otu00004" | otu== "Otu00006"|
+           otu=="Otu00008" | otu=="Otu00017" | otu=="Otu00032")%>%
+  group_by(otu, Treatment)%>% summarise(cum_otu_rabund = sum(rabund_arm))
+
+d6_abund
+
+
+d28_abund <- comb_otu_data %>% filter(Time_point == "day_28")%>% 
+  select(sample, otu, count, Size, Treatment, genus)%>%
+  group_by(Treatment) %>% dplyr::mutate(cum_abund_arm = sum(count)) %>%
+  dplyr::mutate(rabund_arm = count/cum_abund_arm)
+
+d28_abund %>% group_by(Treatment) %>% summarise(n=sum(rabund_arm)) %>% 
+  summary() #should be equal to 1 for both arms
+
+d28_abund <- comb_otu_data %>% filter(Time_point == "day_28")%>%
+  select(sample, otu, count, Size, Treatment, genus)%>%
+  group_by(Treatment) %>% dplyr::mutate(cum_abund_arm = sum(count)) %>%
+  dplyr::mutate(rabund_arm = count/cum_abund_arm) %>%
+  filter(otu=="Otu00031" | otu=="Otu00079" | otu=="Otu00143" | otu=="Otu00015"|
+            otu=="Otu00039" | otu=="Otu00003" | otu=="Otu00005")%>%
+  group_by(otu, Treatment)%>% summarise(cum_otu_rabund = sum(rabund_arm))
+
+d28_abund
+
+
+
+```
+
+
+
+```{r community types, echo=TRUE}
+
+#distribution of community types generated with mothur-------------------------
+
+communitytype <- 
+  read_tsv(file = 
+             "final.mic2.opti_mcc.0.03.filter.0.03.subsample.0.03.dmm.mix.design",
+                        col_names = FALSE) %>% 
+  rename(sample = X1, cluster = X2) %>%
+  inner_join(., metadata, by = "sample")%>% dplyr::filter(Sample_type =="RS")
+  
+communitytype$cluster <- recode(communitytype$cluster, 
+                                Partition_1 = "Community_1", 
+                                Partition_2 = "Community_2",
+                                       Partition_3 = "Community_3")
+
+communitytype_freq <- communitytype %>%
+  ggplot(aes(x= Time_point, fill=cluster))+
+  geom_bar(position = "fill")+
+  scale_y_continuous(labels = scales::percent)+
+  scale_x_discrete(limits=c("day_0", "day_6",
+                            "day_28", "month_4", "year_3"))+
+  scale_fill_manual(values = c("grey80", "grey40", "darkred"))+
+  labs(y="Percentage of Samples", x="Time_point", tag = "a") +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  theme(axis.title = element_text(size = 10))+
+  facet_wrap(facets = "Treatment")
+
+communitytype_freq
+
+
+ 
+# show representation of top 20 OTUs across community types using heatmap------
+ 
+library(microbiomer)
+library(magrittr)
+ 
+ps <- final_phylo_rare
+
+# load functions
+
+hc_order <- function(ps) {
+  ps.m <- ps %>%
+    otu_tab_to_df() %>%
+    column_to_rownames("sample_id") %>%
+    as.matrix() 
+
+bc <- vegan::vegdist(ps.m, method = "bray")
+bc.m <-as.matrix(bc)
+hc <- hclust(bc, method="average") 
+
+ps_reorder_samples <- function(ps, order_by)  { # order_by is numeric
+  sample_data(ps) <- sample_data(ps)[order_by, ]
+  otu_table(ps) <- otu_table(ps)[, order_by]
+  return(ps)
+}
+
+ps_ord <- ps_reorder_samples(ps, hc$order)
+sample_data(ps_ord)$hc_sample_id <- fct_inorder(rownames(sample_data(ps_ord)))
+return(ps_ord)
+}
+
+ps_ord <- hc_order(ps)
+
+#heatmap
+
+ps_ord <- ps_ord %>% to_RA() # convert to relative abundance
+
+ps_ord %>% meta_to_df() %>% head
+
+#create dummy partition variable
+
+set.seed(187)
+
+sample_data(ps_ord)$Partition <- sample(1:3, nsamples(ps_ord), replace = T) %>% 
+  factor
+
+# hierarchical clustering
+
+bc <- ps_ord %>%
+  otu_table() %>% 
+  t %>%
+  vegdist(., "bray")
+
+hc <- hclust(bc, "average")
+
+
+# prepare heatmap
+
+#Note: important this has the same ordering as the dendrogram above!
+ # Change '20' in the script below if you want to show more OTUs.
+
+otu_hm <- as(otu_table(ps_ord), "matrix")
+
+otu_hm_order <- otu_hm[order(rowMeans(otu_hm), decreasing = T)[1:20], hc$order] 
+meta_hm_order <- ps_ord %>% meta_to_df() %>% .[hc$order,]
+
+all(colnames(otu_hm_order) == hc$labels[hc$order]) # should be TRUE
+
+prep_hm_data <- function(otu_hm_order, meta_hm_order) {
+  hm_data <- otu_hm_order %>%
+    data.frame(check.names = F) %>%
+    rownames_to_column("OTU") %>%
+    pivot_longer(-OTU, names_to = "sample_id", values_to = "RA") %>%
+    left_join(
+      .,
+      meta_hm_order, by = "sample_id") 
+  
+  return(hm_data)
+}
+
+hm_data <- prep_hm_data(otu_hm_order, meta_hm_order)
+
+taxa <- constaxonomy %>% select(OTU, genus)
+
+hm_data_anno <- left_join(hm_data, taxa, by= "OTU")
+
+hm_data_anno$partition <- gsub("Partition", "Community", hm_data_anno$partition)
+
+hm_data_anno$annotatedOTU <- base::paste(hm_data_anno$OTU, 
+                                         hm_data_anno$genus, sep = "_")
+
+hm_data_anno$annotatedOTU <- as.factor(hm_data_anno$annotatedOTU)
+
+hm_data_anno$sample_id <- as.factor(hm_data_anno$sample_id)
+
+#order variables
+
+hm_data_anno$annotatedOTU <- fct_inorder(hm_data_anno$annotatedOTU) %>%
+  fct_rev() 
+hm_data_anno$sample_id <- fct_inorder(hm_data_anno$sample_id)
+
+#plot heat map
+hm2 <- hm_data_anno %>%
+  ggplot(aes(x = sample_id, y = annotatedOTU, fill = RA)) +
+  geom_tile() +
+  scale_fill_gradientn(name="Relative abundance", 
+                       colors = RColorBrewer::brewer.pal(7, "Reds"), 
+                       na.value = "white") + theme_bw() + 
+  theme(axis.text.x = element_blank(), 
+        axis.text.y = ggtext::element_markdown(size = 8), 
+        axis.ticks.x = element_blank(), legend.position = "bottom") +
+  xlab("Sample") + ylab("OTU") + labs(tag = "b")
+
+hm2
+
+#facet heat map
+
+partitions_hm_c <- hm2 + 
+  facet_grid(~ partition, space = "free", scales = "free_x")
+
+partitions_hm_c
+
+
+
+# plot trajectories of community types-----------------------------------------
+
+
+library(ggtext)
+library(microbiomer)
+
+
+meta_trj <- readxl::read_xlsx("subsample_metadata_child.xlsx", sheet = 1) %>%
+  rename(subject="sample", clust="partition", Rndo = "Rand_No", 
+         time ="Time_point", Arm = "Treatment")%>%
+  transmute(subject = Rndo, time, Arm, clust) %>% 
+  mutate(time = fct_relevel(factor(time), 
+                            "day_0", "day_6", "day_28", "month_4", "year_3"),
+         clust = fct_relevel(factor(clust), str_c("Partition_", 1:3)),
+         Arm = factor(Arm))
+
+meta_trj$Arm <- recode(meta_trj$Arm, Azi = "Azithromycin") 
+meta_trj$clust <- recode(meta_trj$clust, 
+                         Partition_1 = "Community_1", 
+                         Partition_2 = "Community_2", 
+                         Partition_3 = "Community_3")
+
+
+# plot transitions 
+
+dot_flow_fnx <- function(meta_trj, facet_by, single_edges = F, 
+                         cols = NULL, data = F) { 
+  #meta with columns `clust` (NA removed internally), `time`, `subject`
+  #assumes subject-level facet_by
+  
+  conflicted::conflict_prefer("strsplit", "base", quiet = T)
+  if(is.null(cols)) 
+    { cols <- colorRampPalette(RColorBrewer::brewer.pal(9, "RdYlBu"))(length(levels(meta_trj$clust))) }
+  
+  nodes_full <- meta_trj %>%
+    dplyr::filter(!is.na(clust)) %>% droplevels 
+  
+  nodes <- nodes_full %>%
+    count(time, clust, {{facet_by}}, name = "size_clust") %>%
+    arrange(time, desc(size_clust)) %>% 
+    mutate(clust = fct_rev(fct_inorder(clust)))
+  
+  clust_levels <- nodes %>% 
+    pull(clust) %>% 
+    levels
+  
+  scaffold_df <- meta_trj %>% 
+    tidyr::expand(subject, time) # assumes subject-level facet_by
+  
+  meta_edge_prep <- left_join(scaffold_df, meta_trj, by = c("subject", "time"))
+  
+  meta_edge <- meta_edge_prep %>%
+    group_by(subject) %>%
+    mutate(clust_t1=lead(clust),
+           time_t1=lead(time)) %>%
+    unite(trans, c("clust", "clust_t1"), sep="~") %>%
+    unite(time_int, c("time", "time_t1"), sep="~") %>%
+    dplyr::filter(!str_detect(trans, "NA")) %>% ungroup %>% 
+    count(time_int, trans, {{facet_by}}, name = "edge") %>%
+    separate(trans, c("clust", "clust_t1"), sep = "~") %>%
+    separate(time_int, c("time", "time_t1"), sep = "~") %>%
+    mutate(across(c(clust, clust_t1), ~factor(., levels = clust_levels))) %>%
+    mutate(across(c(time, time_t1), ~factor(., levels = levels(nodes$time))))%>%
+    group_by(time, {{facet_by}})
+  
+  meta_edge %<>%
+    dplyr::filter(!time==time_t1) %>%
+    mutate(total_trans = sum(edge)) %>% ungroup %>% 
+    # % transitions to given cluster / total transitions within time window
+    mutate(perc = edge/total_trans)
+  
+  if(!single_edges) { meta_edge %<>% dplyr::filter(!edge==1) }
+  
+  facet_by_quo <- enquo(facet_by)
+  if(!rlang::quo_is_missing(facet_by_quo)) { 
+    message(str_c("Plot is facetted by ", 
+                  str_c(meta_edge %>% pull({{facet_by}}) %>% 
+                          levels, collapse = "/"), ".")) }
+  message(str_c("Number of transitions is ", 
+                meta_edge %>% count({{facet_by}}, wt = edge) %>% pull(n) %>% 
+                  str_c(., collapse = "/"), " (between time points)."))
+  message(str_c("Number of edges plotted is ", meta_edge %>% 
+                  count({{facet_by}}) %>% pull(n) %>% 
+                  str_c(., collapse = "/"), " (between time points)."))
+  
+  edges_gg <- meta_edge %>%
+    arrange(perc) %>%
+    ggplot(aes(x=time, xend=time_t1, y=clust, yend=clust_t1, 
+               linewidth=edge, color=perc)) +
+    geom_segment() + 
+    scale_y_discrete(drop=FALSE) +
+    scale_x_discrete(drop=FALSE, position = "top") +
+    scale_colour_gradientn(colors = colorRampPalette(RColorBrewer::brewer.pal
+                                              (9, "YlOrRd"))(20)[3:20], 
+                           limits=c(0.02,0.3), oob = scales::squish, 
+                           name="Transition\nfrequency", 
+                           breaks=c(0.02, 0.1, 0.2, 0.3), 
+                           labels=c("<2%", "10%", "20%", ">30%")) +
+    scale_size_continuous(guide= "none", range=c(0.5,3.5)) + 
+    xlab("Time point") + ylab("Cluster") + labs(tag = "c") +
+    theme(panel.grid.major.y = element_blank())
+  
+  nodes_gg <- nodes %>%
+    ggplot(aes(x=time, y=clust, size=size_clust, fill=clust)) +
+    geom_point(shape=21) +
+    scale_y_discrete(drop=FALSE) +
+    scale_fill_manual(values=cols) +
+    theme_minimal(base_family=theme_get()$text$family) +
+    theme(panel.grid = element_blank(), panel.background = element_blank()) +
+    scale_size_continuous(range=c(1.5, 8)) + 
+    scale_x_discrete(position = "top", drop = F) +
+    xlab(NULL) + ylab(NULL) +
+    theme(legend.position = "none", panel.background = element_blank(), 
+          strip.text= element_text(color = "transparent"))
+  
+  facet_by_quo <- enquo(facet_by)
+  if(!rlang::quo_is_missing(facet_by_quo)) {
+    nodes_gg <- nodes_gg + ggforce::facet_row(vars({{facet_by}}), 
+                                              strip.position = "right") 
+    edges_gg <- edges_gg + ggforce::facet_row(vars({{facet_by}}), 
+                                              strip.position = "right") + 
+      theme(strip.text.x = ggtext::element_markdown(), 
+            strip.text.y = ggtext::element_markdown())
+  }
+  
+  require(cowplot)
+  conflicted::conflict_prefer("align_plots", "cowplot", quiet = T)
+  aligned_plots <- align_plots(edges_gg, nodes_gg, align = "hv", axis = "tblr")
+  p_comb <- ggdraw(aligned_plots[[1]]) + draw_plot(aligned_plots[[2]])
+  
+  if(!data) { return(p_comb) }
+  if(data) { return(list(p = p_comb, nodes = nodes, edge = meta_edge)) }
+}
+
+
+trajectory <- dot_flow_fnx(meta_trj, Arm, single_edges = F)
+
+
+comm_type_plots <- communitytype_freq/partitions_hm_c/trajectory
+
+comm_type_plots
+
+
+```
+
+
+
+

@@ -1,0 +1,271 @@
+---
+title: "MIC2_baseline_comparisons"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+```{r load packages and spreadsheet}
+library(readxl)
+library(tidyverse)
+library(ggprism)
+
+
+baseline <- read_excel(path = "Baseline_characteristics.xlsx", sheet = "Sheet1")
+
+```
+
+```{r}
+#AZI
+bl_azi <- baseline %>% filter(Treatment=="Azi")
+
+bl_azi %>% summarise(`Mother's_Age`)%>% summary()
+
+sd(bl_azi$`Mother's_Age`)
+
+bl_azi %>% summarise(Weight)%>% summary()
+
+sd(bl_azi$Weight)
+```
+
+```{r}
+#Placebo
+bl_placebo <- baseline %>% filter(Treatment=="Placebo")
+
+bl_placebo %>% summarise(`Mother's_Age`)%>% summary()
+
+sd(bl_placebo$`Mother's_Age`)
+
+bl_placebo %>% summarise(Weight)%>% summary()
+
+sd(bl_placebo$Weight)
+```
+
+```{r}
+##comparisons
+
+#season of birth
+
+season <- baseline %>% select(Delivery_season, Treatment)
+
+season_tbl <- table(season)
+
+chisq.test(season_tbl)
+
+```
+
+```{r}
+#ethnicity
+
+ethn <- baseline %>% select(`Mother's_Ethnicity`, Treatment) 
+
+ethn_tbl <- table(ethn)
+
+chisq.test(ethn_tbl)
+```
+
+```{r}
+#sex
+
+sex <- baseline %>% select(sex, Treatment)
+
+sex_tbl <- table(sex)
+
+chisq.test(sex_tbl)
+```
+
+```{r}
+#maternal age
+
+t.test(`Mother's_Age` ~ Treatment, data=baseline)
+
+```
+
+```{r}
+#birth weight
+
+t.test(Weight ~ Treatment, data = baseline)
+```
+
+```{r}
+#sample time-points
+
+cleaned_baseline <- baseline %>% filter(age_day6 >0, age_day28 > 0)
+
+#AZI time-points
+
+day6_Azi <- cleaned_baseline %>% select(age_day6, Treatment)%>% filter(Treatment == "Azi")%>%
+  summarise(age_day6)%>%summary()
+
+day6_Azi
+
+day28_Azi <- cleaned_baseline %>% select(age_day28, Treatment)%>% filter(Treatment == "Azi")%>%
+  summarise(age_day28)%>%summary()
+
+day28_Azi
+
+m4_Azi <- cleaned_baseline %>% select(age_month4, Treatment)%>% filter(Treatment == "Azi")%>%
+  summarise(age_month4)%>%summary()
+
+m4_Azi
+
+
+#Placebo time-points
+
+day6_P <- cleaned_baseline %>% select(age_day6, Treatment)%>% filter(Treatment == "Placebo")%>%
+  summarise(age_day6)%>%summary()
+
+day6_P
+
+day28_P <- cleaned_baseline %>% select(age_day28, Treatment)%>% filter(Treatment == "Placebo")%>%
+  summarise(age_day28)%>%summary()
+
+day28_P
+
+m4_P <- cleaned_baseline %>% select(age_month4, Treatment)%>% filter(Treatment == "Placebo")%>%
+  summarise(age_month4)%>%summary()
+
+m4_P
+
+
+```
+
+```{r}
+#year 3 baseline comparisons
+
+yr3_baseline <- baseline %>% filter(year3_visit !=0)
+
+
+
+```
+
+```{r}
+#year3 AZI
+yr3_azi <- yr3_baseline %>% filter(Treatment=="Azi")
+
+yr3_azi %>% summarise(`Mother's_Age`)%>% summary()
+
+sd(yr3_azi$`Mother's_Age`)
+
+yr3_azi %>% summarise(Weight)%>% summary()
+
+sd(yr3_azi$Weight)
+
+yr3_A <- yr3_baseline %>% select(age_year3, Treatment)%>% filter(Treatment == "Azi")%>%
+  summarise(age_year3)%>%summary()
+
+yr3_A
+
+```
+
+```{r}
+#yr3_Placebo
+
+yr3_placebo <- yr3_baseline %>% filter(Treatment=="Placebo")
+
+yr3_placebo %>% summarise(`Mother's_Age`)%>% summary()
+
+sd(yr3_placebo$`Mother's_Age`)
+
+yr3_placebo %>% summarise(Weight)%>% summary()
+
+sd(yr3_placebo$Weight)
+
+yr3_P <- yr3_baseline %>% select(age_year3, Treatment)%>% filter(Treatment == "Placebo")%>%
+  summarise(age_year3)%>%summary()
+
+yr3_P
+
+```
+
+```{r}
+#year3 comparison
+
+#season of birth
+
+yr3_season <- yr3_baseline %>% select(Delivery_season, Treatment)
+
+yr3_season_tbl <- table(yr3_season)
+
+chisq.test(yr3_season_tbl)
+
+#ethnicity
+
+yr3_ethn <- yr3_baseline %>% select(`Mother's_Ethnicity`, Treatment) 
+
+yr3_ethn_tbl <- table(yr3_ethn)
+
+chisq.test(yr3_ethn_tbl)
+
+#sex
+
+yr3_sex <- yr3_baseline %>% select(sex, Treatment)
+
+yr3_sex_tbl <- table(yr3_sex)
+
+chisq.test(yr3_sex_tbl)
+
+#birth weight
+
+t.test(Weight ~ Treatment, data = yr3_baseline)
+
+#maternal age
+
+t.test(`Mother's_Age` ~ Treatment, data= yr3_baseline)
+
+#breastfeeding 
+
+yr3_bf <- yr3_baseline %>% select(BF_in_first_six_months, Treatment)
+
+yr3_bf_tbl <- table(yr3_bf)
+
+chisq.test(yr3_bf_tbl)
+
+#breastfeeding duration
+
+yr3_bfd <- yr3_baseline %>% filter(BF_duration_in_months != "NA")
+  
+yr3_bfd$BF_duration_in_months <- as.numeric(yr3_bfd$BF_duration_in_months)
+
+
+Azi_bdf <- yr3_bfd %>% filter(Treatment =="Azi") 
+
+Azi_bdf %>% summarise(BF_duration_in_months) %>% summary()
+
+
+Placebo_bdf <- yr3_bfd %>% filter(Treatment =="Placebo") 
+
+Placebo_bdf %>% summarise(BF_duration_in_months) %>% summary()
+
+#recent antibiotic consumption
+
+yr3_antibio <- yr3_baseline %>% select(Antibiotic_within_past_month, Treatment)
+
+yr3_antibio_tbl <- table(yr3_antibio)
+
+fisher.test(yr3_antibio_tbl, alternative = "two-sided", conf.int = TRUE, conf.level = 0.95)
+
+#recent sickness at year 3 survey
+
+yr3_sick <- yr3_baseline %>% select(Sick_within_month_before_year3_visit, Treatment)
+
+yr3_sick_tbl <- table(yr3_sick)
+
+fisher.test(yr3_sick_tbl, alternative = "two-sided", conf.int = TRUE, conf.level = 0.95)
+
+```
+
+
+
+
+

@@ -1,0 +1,1602 @@
+---
+title: "mic2 gut mycobiota analysis"
+author: "Bakary Sanyang"
+date: "2024-12-31"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+```{r read in and merge raw data, echo=TRUE}
+
+library(readxl)
+library(tidyverse)
+
+run_data <- read_excel(path = "~/OneDrive - London School of Hygiene and Tropical Medicine/my_projects/MIC_A2/mycobiome/final_analysis/Master_spreadsheet_mycobiome.xlsx", sheet = "run_metadata") 
+
+run_data$Barcode <- gsub("NBD", "barcode", run_data$Barcode)
+
+baseline_data <- read_excel(path = "~/OneDrive - London School of Hygiene and Tropical Medicine/my_projects/MIC_A2/mycobiome/final_analysis/Baseline_characteristics.xlsx", sheet = "Sheet1")
+
+age_by_parity <- baseline_data %>% 
+  dplyr::mutate(para = if_else(Parity!="Primipara", "multipara", Parity), .before = Parity) %>%
+  filter(Mother_Age != "NA")%>%
+  dplyr::group_by(para) %>% summarise(median(Mother_Age), IQR(Mother_Age))
+
+neo_period <- c("day_0", "day_6", "day_28")
+
+complete_metadata <- right_join(run_data, baseline_data, by="Rand_No") %>%
+  mutate(sampling_season1 = if_else(Time_point != "month_4", Delivery_season, month4_season), .after=Delivery_season) %>% mutate(sampling_season = if_else(Time_point == "year_3","Wet",  sampling_season1), .after=sampling_season1)
+
+plate1 <- read.csv(file = "mic2_myco_plate1_results_combined.csv")
+plate2 <- read.csv(file = "mic2_myco_plate2_results_combined.csv")
+plate3 <- read.csv(file = "mic2_myco_plate3_results_combined.csv")
+plate4 <- read.csv(file = "mic2_myco_plate4_results_combined.csv")
+plate5 <- read.csv(file = "mic2_myco_plate5_results_combined.csv")
+plate6 <- read.csv(file = "mic2_myco_plate6_results_combined.csv")
+plate7 <- read.csv(file = "mic2_myco_plate7_results1_combined.csv")
+#plate7 <- read.csv(file = "plate7_repeat_results_combined.csv")
+
+plate1a <- run_data %>% filter(Plate =="plate1") %>% 
+  select(Sample_ID, Barcode)%>% inner_join(., plate1, by="Barcode") %>%
+  select(-Barcode)
+
+plate2a <- run_data %>% filter(Plate =="plate2") %>% 
+  select(Sample_ID, Barcode)%>% inner_join(., plate2, by="Barcode") %>%
+  select(-Barcode)
+
+plate3a <- run_data %>% filter(Plate =="plate3") %>% 
+  select(Sample_ID, Barcode)%>% inner_join(., plate3, by="Barcode") %>%
+  select(-Barcode)
+
+plate4a <- run_data %>% filter(Plate =="plate4") %>% 
+  select(Sample_ID, Barcode)%>% inner_join(., plate4, by="Barcode") %>%
+  select(-Barcode)
+
+plate5a <- run_data %>% filter(Plate =="plate5") %>% 
+  select(Sample_ID, Barcode)%>% inner_join(., plate5, by="Barcode") %>%
+  select(-Barcode)
+
+plate6a <- run_data %>% filter(Plate =="plate6") %>% 
+  select(Sample_ID, Barcode)%>% inner_join(., plate6, by="Barcode") %>%
+  select(-Barcode)
+
+plate7a <- run_data %>% filter(Plate =="plate7") %>% 
+  select(Sample_ID, Barcode)%>% inner_join(., plate7, by="Barcode") %>%
+  select(-Barcode)
+
+comb_run_data <- rbind(plate1a, plate2a, plate3a, plate4a, plate5a, plate6a, plate7a) %>%
+  inner_join(., complete_metadata, by="Sample_ID") 
+
+
+#summary of all samples and controls pre-processing
+comb_run_data%>%group_by(Sample_type)%>% summarise(length(unique(Sample_ID)))
+
+initial_samp_data <- comb_run_data %>% filter(Sample_type=="RS")%>% 
+  distinct(Sample_ID, .keep_all = TRUE)%>% select(-Taxid, -RelativeAbundance, -Reads)
+
+initial_samp_summary <- initial_samp_data%>% group_by(Treatment, Time_point)%>%
+  summarise(length(unique(Sample_ID)))
+
+
+#view profiles of samples and controls before processing
+
+r_abund <- function(x) {
+  x/sum(x)
+}
+
+raw_prfile_data <- comb_run_data %>% select(-RelativeAbundance)%>%
+  group_by(Sample_ID) %>% mutate(rel_abund=r_abund(Reads))%>% ungroup()%>%
+  group_by(Sample_ID, Taxid, Treatment, Time_point, Sample_type) %>%
+  summarise(agg_r_abund=sum(rel_abund))%>%
+  ungroup()
+
+
+raw_prfile_data %>% group_by(Sample_ID) %>% summarise(n=sum(agg_r_abund)) %>% summary() #should be equal to 1 for all samples
+
+
+top40_raw <- raw_prfile_data %>%
+  group_by(Taxid) %>%
+  summarise(mean=mean(agg_r_abund)) %>%
+  arrange((desc(mean))) %>% 
+  top_n(40, mean) %>%
+  pull(Taxid) 
+
+top40_rtax <- raw_prfile_data %>%
+  filter(Taxid %in% top40_raw)
+
+
+# check that the top40 taxa selected represent a good proportion of the individual sample communities
+
+top40_rtax %>% group_by(Sample_ID) %>% summarise(n=sum(agg_r_abund)) %>% summary() #these top40 taxa represent approx 100% of the communities of at least 75% of the samples. The least coverage is 90%.
+
+my_palette <- c("#FFA384", "red", "#4C5270","#005b9f", "#2439a5","#0020f9", "#F17720",
+              "#FFA630", "#EBEBEB", "#00A7E1", "#0474EA", "yellow", "#EBEBA0", 
+              "pink","#BCECE0", "#3D550C", "#81B622", "#81E622",
+              "#778A35", "#DAD870", "#ECF87F","#D1E2C4", "#31352E", "#8F3B21", 
+              "#DD9927", "#FF6501", "#B78326", "#86785C", "#ADA7A7", "#FFB851",
+              "#FFA384", "red", "#4C5270","#005b9f", "#2439a5", "#F17720",
+              "#FAB630", "#EBEBEB", "#00A7E1", "#0474BA")
+
+init_raw_profile <- top40_rtax %>% 
+  group_by(Time_point, Taxid, Sample_ID, Sample_type) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=Time_point, y=sum_agg_r_abund, fill=Taxid)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete () +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance (Pre-filter)") +
+  scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 10), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
+  facet_wrap(facets = "Sample_type", scales = "free_x")
+
+init_raw_profile
+
+#percentage of human reads in samples by age
+percent_human <- top40_rtax %>% filter(Sample_type=="RS", Taxid=="Homo sapiens")%>% 
+  group_by(Time_point) %>% summarise(sum_agg_r_abund = sum(agg_r_abund))
+
+
+
+```
+
+
+```{r remove human and unclassified reads and recalculate relative abundance, echo=TRUE}
+r_abund <- function(x) {
+  x/sum(x)
+}
+
+comb_run_data2 <- comb_run_data %>% select(-RelativeAbundance)%>% 
+  rename("count"=Reads) %>%
+  filter(Taxid != "Homo sapiens", Taxid != "unclassified") %>% 
+  group_by(Sample_ID)%>% 
+  mutate(rel_abund = r_abund(count)) 
+
+comb_run_data2 %>% group_by(Sample_ID) %>% summarise(sum(rel_abund)) %>% summary() #should be equal to 1 for all samples
+
+```
+
+
+
+
+```{r examine taxonomic profiles and read counts before contaminant removal, echo=TRUE}
+
+#examine counts
+
+prefilter_count <- comb_run_data %>% group_by(Sample_ID, Treatment, Sample_type, Time_point) %>%
+  summarise(total_count = sum(Reads)) 
+
+count_plot1 <- prefilter_count %>% group_by(Sample_ID, Sample_type, Time_point) %>% 
+  ggplot(., aes(x=Time_point, y=total_count, color=Sample_type)) +
+  geom_point (position = 
+                position_jitterdodge(
+                  jitter.width = 0.2, jitter.height = 0, dodge.width = 0.8), 
+               alpha=0.6, show.legend = TRUE) +
+  scale_color_manual(values = c("#FF5412", "dark blue", "#00A7E1", "#31352E")) +
+  geom_boxplot(aes(x=Time_point, y=total_count, color=Sample_type),
+               alpha=0.6, outlier.colour = NA, 
+               position = position_dodge(width = 0.8), show.legend = TRUE) +
+  labs(x="Sample type",
+       y="Read count (Pre-filter)", tag = ("a")) +
+  theme_classic() +
+  theme(axis.title = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+count_plot1
+
+
+
+postfilter1_count <- comb_run_data2 %>% group_by(Sample_ID, Treatment, Sample_type, Time_point) %>%
+  summarise(total_count = sum(count)) 
+
+count_plot2 <- postfilter1_count %>% group_by(Sample_ID, Sample_type, Time_point) %>% 
+  ggplot(., aes(x=Time_point, y=total_count, color=Sample_type)) +
+  geom_point (position = 
+                position_jitterdodge(
+                  jitter.width = 0.2, jitter.height = 0, dodge.width = 0.8), 
+               alpha=0.6, show.legend = TRUE) +
+  scale_color_manual(values = c("#FF5412", "dark blue", "#00A7E1", "#31352E")) +
+  geom_boxplot(aes(x=Time_point, y=total_count, color=Sample_type),
+               alpha=0.6, outlier.colour = NA, 
+               position = position_dodge(width = 0.8), show.legend = TRUE) +
+  labs(x="Sample type",
+       y="Read count (Post-filter1)", tag = "b") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+count_plot2
+
+library(patchwork)
+
+count1n2 <- count_plot1/count_plot2
+count1n2
+
+
+#check how many samples remained after first filter
+
+samples_postfiltr1 <- comb_run_data2 %>% filter(Sample_type=="RS")%>%
+  select(Sample_ID, Time_point, Treatment, count)%>%
+  distinct(Sample_ID, .keep_all = TRUE)
+
+#examine profiles
+
+init_prfile_data <- comb_run_data2 %>%
+  group_by(Sample_ID, Taxid, Treatment, Time_point, Sample_type) %>%
+  summarise(agg_r_abund=sum(rel_abund))%>%
+  ungroup()
+
+
+init_prfile_data %>% group_by(Sample_ID) %>% summarise(n=sum(agg_r_abund)) %>% summary() #should be equal to 1 for all samples
+
+
+top40_taxa <- init_prfile_data %>%
+  group_by(Taxid) %>%
+  summarise(mean=mean(agg_r_abund)) %>%
+  arrange((desc(mean))) %>% 
+  top_n(40, mean) %>%
+  pull(Taxid) 
+
+top40 <- init_prfile_data %>%
+  filter(Taxid %in% top40_taxa)
+
+
+# check that the top40 taxa selected represent a good proportion of the individual sample communities
+
+top40 %>% group_by(Sample_ID) %>% summarise(n=sum(agg_r_abund)) %>% summary() #these top40 taxa represent approx 100% of the communities of at least 75% of the samples. The least coverage is 92.9%.
+
+my_palette <- c("#FFA384", "red", "#4C5270","#005b9f", "#2439a5","#0020f9", "#F17720",
+              "#FFA630", "#EBEBEB", "#00A7E1", "#0474EA", "yellow", "#EBEBA0", 
+              "pink","#BCECE0", "#3D550C", "#81B622", "#81E622",
+              "#778A35", "#DAD870", "#ECF87F","#D1E2C4", "#31352E", "#8F3B21", 
+              "#DD9927", "#FF6501", "#B78326", "#86785C", "#ADA7A7", "#FFB851",
+              "#FFA384", "red", "#4C5270","#005b9f", "#2439a5", "#F17720",
+              "#FAB630", "#EBEBEB", "#00A7E1", "#0474BA")
+
+init_profile_1a <- top40 %>% 
+  group_by(Time_point, Taxid, Sample_ID, Sample_type) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=Time_point, y=sum_agg_r_abund, fill=Taxid)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete () +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance (Pre-filter)") +
+  scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 10), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
+  facet_wrap(facets = "Sample_type", scales = "free_x")
+
+init_profile_1a
+
+
+```
+
+
+```{r create a phyloseq object and identify contaminant features, echo=TRUE}
+
+otu_table <- comb_run_data2 %>% select(Sample_ID, Taxid, rel_abund) %>% 
+  pivot_wider(., id_cols = Sample_ID, names_from = Taxid, values_from = rel_abund,
+              values_fill = 0)%>%
+  column_to_rownames(var = "Sample_ID") %>% data.matrix()
+
+row.names(otu_table)
+
+is.matrix(otu_table) #should be true
+is.numeric(otu_table) #should be true
+
+library(phyloseq)
+
+ps_otu <- otu_table(otu_table, taxa_are_rows = FALSE)
+
+psMetadata <- run_data %>% 
+  mutate(is.neg = if_else(Sample_type =="RS", "FALSE", "TRUE"))%>%
+  column_to_rownames(var = "Sample_ID")
+
+psMetadata$is.neg <- as.logical(psMetadata$is.neg)
+
+psMetadata$Post_PCR_conc <- as.numeric(psMetadata$Post_PCR_conc)
+
+ps_obj <- phyloseq(otu_table(ps_otu), sample_data(psMetadata))
+
+
+library(decontam)
+
+#examine which model is fit for this data
+
+freq_model <- plot_frequency(ps_obj, taxa_names(ps_obj)[c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20)], conc="Post_PCR_conc") + 
+  xlab("DNA Concentration post PCR amplification")
+
+freq_model
+
+is.contam_freq <- isContaminant(ps_obj, conc="Post_PCR_conc", method = "frequency", threshold=0.1, detailed=TRUE) %>% filter(contaminant =="TRUE")
+is.contam_freq
+
+is.contam_freq2 <- isContaminant(ps_obj, conc="Post_PCR_conc", method = "frequency", threshold= 0.2, detailed=TRUE) %>% filter(contaminant =="TRUE")
+is.contam_freq2
+
+is.contam_prev1 <-isContaminant(ps_obj, neg="is.neg", method = "prevalence", threshold=0.2, detailed=TRUE) %>% filter(contaminant =="TRUE")
+is.contam_prev1
+
+is.contam_freqprev1 <-isContaminant(ps_obj, conc="Post_PCR_conc", neg="is.neg", method = "combined",
+                                    threshold=c(0.2), detailed=TRUE) %>% 
+  filter(contaminant =="TRUE")
+is.contam_freqprev1
+
+#write_csv(is.contam_freqprev1, file = "contaminants_freqprevcomb0.2_decontam.csv")
+
+
+```
+
+
+```{r remove contaminants and re-assess count and profiles, echo=TRUE}
+
+#re-examine counts
+
+contaminants <- is.contam_freqprev1 %>% rownames_to_column(var = "taxa") %>%
+  pull(taxa)
+
+postfilter2_count <- comb_run_data2 %>% 
+  filter(!(Taxid %in% contaminants)) %>%
+  group_by(Sample_ID, Treatment, Sample_type, Time_point) %>%
+  summarise(total_count = sum(count)) 
+
+count_plot3 <- postfilter2_count %>% 
+  group_by(Sample_ID, Sample_type, Time_point) %>% 
+  ggplot(., aes(x=Time_point, y=total_count, color=Sample_type)) +
+  geom_point (position = 
+                position_jitterdodge(
+                  jitter.width = 0.2, jitter.height = 0, dodge.width = 0.8), 
+               alpha=0.6, show.legend = TRUE) +
+  scale_color_manual(values = c("#FF5412", "dark blue", "#00A7E1", "#31352E")) +
+  geom_boxplot(aes(x=Time_point, y=total_count, color=Sample_type),
+               alpha=0.6, outlier.colour = NA, 
+               position = position_dodge(width = 0.8), show.legend = TRUE) +
+  labs(x="Sample type",
+       y="Read count (Post-filter2)", tag = "c") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+count_plot3
+
+count123 <- count_plot1/count_plot2/count_plot3
+count123
+
+#check number of samples remaining after filtering contams
+
+samples_postfiltr2 <- comb_run_data2 %>% 
+  filter(!(Taxid %in% contaminants)) %>% filter(Sample_type=="RS")%>%
+  select(Sample_ID, Time_point, Treatment, count)%>%
+  distinct(Sample_ID, .keep_all = TRUE)
+
+
+#re-examine the effect of filtering
+
+postfilter_prfile_data1 <- comb_run_data2 %>%  filter(!(Taxid %in% contaminants)) %>%
+  group_by(Sample_ID, Taxid, Treatment, Time_point, Sample_type, count) %>%
+  summarise(agg_r_abund=sum(rel_abund))%>%
+  ungroup()
+
+
+postfilter_prfile_data1 %>% group_by(Sample_ID) %>% summarise(n=sum(agg_r_abund)) %>% summary() #see what percent of the individual sample and control communities are represented by the remaining taxa
+
+postfilter_prfile_data1 %>% filter(Sample_type =="RS")%>% group_by(Sample_ID) %>% summarise(n=sum(agg_r_abund)) %>% summary() #see what percent of the individual sample communities is represented by the remaining taxa
+
+length(unique(postfilter_prfile_data1$Taxid)) #see how many unique taxa remained after filtering. 
+
+
+#re-calculate relative abundance and view profile
+
+postfilter_prfile_data1a <-  comb_run_data2 %>%  
+  filter(!(Taxid %in% contaminants)) %>% group_by(Sample_ID)%>%
+  mutate(rel_abund=r_abund(count))%>% ungroup()%>%
+  group_by(Sample_ID, Taxid, Treatment, Time_point, Sample_type) %>%
+  summarise(agg_r_abund=sum(rel_abund))%>%
+  ungroup()
+
+top30_taxa <- postfilter_prfile_data1a %>%
+  group_by(Taxid) %>%
+  summarise(mean=mean(agg_r_abund)) %>%
+  arrange((desc(mean))) %>% 
+  top_n(30, mean) %>%
+  pull(Taxid) 
+
+top30 <- postfilter_prfile_data1a %>%
+  filter(Taxid %in% top30_taxa)
+
+
+
+top30 %>% group_by(Sample_ID) %>% summarise(n=sum(agg_r_abund)) %>% summary() #this should be at least 80% for most samples
+
+postfilter_profile_1 <- top30 %>% 
+  group_by(Time_point, Taxid, Sample_ID, Sample_type) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=Time_point, y=sum_agg_r_abund, fill=Taxid)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete () +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance (Post-filter)") +
+  scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 10), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
+  facet_wrap(facets = "Sample_type", scales = "free_x")
+
+postfilter_profile_1
+
+
+# filter A. puulaauensis and A. fumigatus and recalculate relative abundance and view top 28 profiles
+
+postfilter_prfile_data1b <-  comb_run_data2 %>% 
+  filter(!(Taxid %in% contaminants), Taxid!="Aspergillus fumigatus", 
+         Taxid!="Aspergillus puulaauensis")%>% group_by(Sample_ID)%>%
+  mutate(rel_abund=r_abund(count))%>% ungroup()%>%
+  group_by(Sample_ID, Taxid, Treatment, Time_point, Sample_type, Rand_No, count) %>%
+  summarise(agg_r_abund=sum(rel_abund))%>%
+  ungroup()
+
+top28_taxa <- postfilter_prfile_data1b %>%
+  group_by(Taxid) %>%
+  summarise(mean=mean(agg_r_abund)) %>%
+  arrange((desc(mean))) %>% 
+  top_n(28, mean) %>%
+  pull(Taxid) 
+
+top28 <- postfilter_prfile_data1b %>%
+  filter(Taxid %in% top28_taxa)
+
+
+
+top28 %>% group_by(Sample_ID) %>% summarise(n=sum(agg_r_abund)) %>% summary() 
+
+postfilter_profile_1b <- top28 %>% 
+  group_by(Time_point, Taxid, Sample_ID, Sample_type) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=Time_point, y=sum_agg_r_abund, fill=Taxid)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete () +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance (post-filter)") +
+  scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 10), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
+  facet_wrap(facets = "Sample_type", scales = "free_x")
+
+postfilter_profile_1b
+
+
+# profiles by treatment and time-point
+
+top28$Time_point <- factor(top28$Time_point, levels = c("day_0", "day_6", "day_28",
+                                                        "month_4", "year_3"))
+
+sample_profiles_1 <- top28 %>% filter(Sample_type =="RS")%>%
+  group_by(Time_point, Taxid, Sample_ID, Treatment) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=Treatment, y=sum_agg_r_abund, fill=Taxid)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete () +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance", tag = "a" ) +
+  scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 16), 
+        axis.text.x = element_text(vjust = 0.5, hjust = 0.5),
+        axis.text = element_text(size = 14))+
+  facet_wrap(facets = "Time_point", scales = "free_x")
+
+sample_profiles_1
+
+#sample profiles by season
+
+top28_dry <- top28 %>% filter(Sample_type =="RS")%>% 
+  inner_join(., complete_metadata) %>% filter(sampling_season=="Dry")
+
+top28_dry$Time_point <- factor(top28_dry$Time_point, levels = c("day_0", "day_6", "day_28",
+                                                        "month_4", "year_3"))
+
+samp_prfile_dry_season <- top28_dry %>% filter(Time_point!="year_3")%>%
+  group_by(Time_point, Taxid, Sample_ID, Treatment, sampling_season) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=Treatment, y=sum_agg_r_abund, fill=Taxid)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete () +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance", title = "Dry season", tag = "b") +
+  scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 14), 
+        axis.text.x = element_text(vjust = 0.5, hjust = 0.5),
+        axis.text = element_text(size = 12))+
+  facet_wrap(facets = "Time_point", scales = "free_x")
+
+
+top28_wet <- top28 %>% filter(Sample_type =="RS")%>% 
+  inner_join(., complete_metadata) %>% filter(sampling_season=="Wet")
+
+top28_wet$Time_point <- factor(top28_wet$Time_point, levels = c("day_0", "day_6", "day_28",
+                                                        "month_4", "year_3"))
+
+
+samp_prfile_wet_season <- top28_wet %>% filter(Time_point!="year_3")%>% 
+  group_by(Time_point, Taxid, Sample_ID, Treatment, sampling_season) %>%
+  summarise(.groups = "keep", sum_agg_r_abund = sum(agg_r_abund)) %>%
+  ggplot(aes(x=Treatment, y=sum_agg_r_abund, fill=Taxid)) +
+  geom_col(position = 'fill', width = 0.6) +
+  scale_x_discrete () +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "Relative Abundance", title = "Wet season") +
+  scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 14), 
+        axis.text.x = element_text(vjust = 0.5, hjust = 0.5),
+        axis.text = element_text(size = 12))+
+  facet_wrap(facets = "Time_point", scales = "free_x", )
+
+season_profiles <- samp_prfile_dry_season/samp_prfile_wet_season 
+season_profiles
+
+```
+
+
+```{r calculate, visualize and estimate variance in alpha diversity and richness, echo=TRUE}
+
+shannon <- function(x) {
+  rabund <- x[x>0]/sum(x)
+  -sum(rabund*log10(rabund))
+}
+
+richness <- function(x) {
+  sum(x>0)
+}
+
+clean_data <- comb_run_data2%>%
+  filter(!(Taxid %in% contaminants)) %>%
+  filter(Taxid!="Aspergillus fumigatus", 
+         Taxid!="Aspergillus puulaauensis") %>% 
+  group_by(Sample_ID)%>%
+  mutate(shannon_div = shannon(count), 
+         species_richness = richness(count), rel_abund=r_abund(count))%>%
+  mutate(parity= if_else(Parity!="Primipara", "multipara", Parity), .after=Parity)
+
+clean_data%>% group_by(Sample_ID)%>%summarise(sum(rel_abund))%>%summary()
+
+clean_data$Time_point <-factor(clean_data$Time_point, levels = c("day_0", "day_6",
+                                                                 "day_28", "month_4",
+                                                                 "year_3"))
+clean_data$parity <- factor(clean_data$parity, 
+                            levels = c("Primipara", "multipara"))
+
+final_samp_data <- clean_data %>% filter(Sample_type=="RS")%>% 
+  distinct(Sample_ID, .keep_all = TRUE)%>% select(-Taxid, -count)
+
+final_samp_summary <- final_samp_data%>% group_by(Treatment, Time_point)%>%
+  summarise(length(unique(Sample_ID)))
+
+
+#summarise mean shannon diversity and richness per time_point for each group
+
+shann_summary <- clean_data %>% filter(Sample_type=="RS")%>% 
+  group_by(Treatment, Time_point)%>%
+  summarise(mean_shann=mean(shannon_div), 
+            sd_shann = sd(shannon_div),
+            median_shann = median(shannon_div), 
+            iqrange=IQR(shannon_div), 
+            lq=median_shann-(iqrange)/2, 
+            uq=median_shann+(iqrange)/2)
+
+shann_summary
+
+rich_summary <- clean_data %>% filter(Sample_type=="RS")%>% 
+  group_by(Treatment, Time_point)%>%
+  summarise(mean_richness= mean(species_richness),
+            sd_richness = sd(species_richness),
+            median_richness = median(species_richness), 
+            iqrange=IQR(species_richness), lq=median_richness-(iqrange)/2, 
+            uq=median_richness+(iqrange)/2)
+
+rich_summary
+
+#examine distribution of shannon diversity for all time_points
+
+shann_distribution <- clean_data %>% filter(Sample_type=="RS")%>%
+  group_by(Treatment, Time_point, shannon_div)%>% ggplot(aes(x=shannon_div, fill=Treatment))+
+  geom_density(alpha=0.4) +
+  scale_fill_manual(values = c("#FF6501", "#373A40")) +
+  theme_light()+
+  labs(x = "Shannon diversity")+
+  facet_wrap(facets = "Time_point")
+
+shann_distribution
+
+#visualize and compare shannon and richness between trial arms
+
+library(ggpubr)
+library(lmerTest)
+
+#multivariate analysis of Shannon diversity
+
+alpha_regress <- clean_data %>% filter(Time_point!="year3")
+
+
+alpha_regress$Treatment <- factor(alpha_regress$Treatment,
+                                      levels = c("Placebo", "Azi"))
+
+alpha_regress$sampling_season <- factor(alpha_regress$sampling_season,
+                                      levels = c("Dry", "Wet"))
+
+alpha_regress$Mother_Ethnicity <- factor(alpha_regress$Mother_Ethnicity,
+                                      levels = c("Mandinka", "Fula", "Jola",
+                                                 "Wollof", "Other"))
+
+alpha_regress%>% group_by(Parity)%>% summarise(length(unique(Sample_ID)))
+
+alpha_regress$Parity <- factor(alpha_regress$Parity,
+                                      levels = c("Primipara", "Para 2", "Para 3",
+                                                "Para >=4"))
+
+shan_lm <- lmer(shannon_div ~ Treatment + sampling_season + Parity + 
+                  Mother_Ethnicity + Time_point +
+                    Mother_Age + (1|Rand_No), data = alpha_regress)%>%
+  broom.mixed::tidy(conf.int=TRUE)
+
+ordered_coef_shan <- shan_lm%>% 
+filter(term != "(Intercept)", term!="sd__(Intercept)", term!="sd__Observation") %>%
+  mutate(term= fct_reorder(term, estimate), p.value_a=round(p.value, digits = 3), 
+        p.value_b=ifelse(p.value_a<0.001, "<0.001", p.value_a),  
+        P.value=paste("p = ", p.value_b, sep = ""))
+
+ordered_coef_shan$P.value <- recode(ordered_coef_shan$P.value, `p = <0.001` = "p < 0.001")
+
+ordered_coef_shan$term <- recode_factor(ordered_coef_shan$term, Mother_EthnicityOther = "Other ethnicities",
+                                       Mother_EthnicityWollof = "Wollof ethnicity",  
+                                       Mother_EthnicityJola = "Jola ethnicity",
+                                        Mother_EthnicityFula = "Fula ethnicity", Mother_Age = "Maternal age",
+                                        `ParityPara >=4` = "Para ≥4", `ParityPara 3` = "Para 3", 
+                                       `ParityPara 2` = "Para 2", Time_pointyear_3 = "age = year 3",
+                                        Time_pointmonth_4 = "age = month 4",
+                                        Time_pointday_28 = "age = day 28",
+                                        Time_pointday_6 = "age = day_6",
+                                        sampling_seasonWet = "Wet season",
+                                        TreatmentAzi = "Azithromycin")
+  
+shan_regress <- ggplot(data = ordered_coef_shan, aes(estimate, term)) + geom_point()+ 
+  geom_vline(xintercept = 0, lty=3)+
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high, width = 0.25))+
+  theme_classic() +
+  theme(axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 10))+
+  geom_text(label=ordered_coef_shan$P.value, 
+            nudge_y = 0.1, 
+            nudge_x = c(0.13))+
+  labs(y=NULL, x= "Estimate effect on Shannon diversity", tag = "a")+
+  scale_x_continuous(limits = c(-0.2, 0.3), n.breaks = 8)+
+  theme(axis.title = element_text(size = 12, vjust = 1))
+
+shan_regress
+
+
+#multivariate analysis of species richness
+
+rich_lm <- lmer(species_richness ~ Treatment + sampling_season + Parity + 
+                  Mother_Ethnicity + Time_point + 
+                    Mother_Age + (1|Rand_No), data = alpha_regress)%>%
+  broom.mixed::tidy(conf.int=TRUE)
+
+ordered_coef_rich <- rich_lm%>% 
+filter(term != "(Intercept)", term!="sd__(Intercept)", term!="sd__Observation") %>%
+  mutate(term= fct_reorder(term, estimate), p.value_a=round(p.value, digits = 3), 
+        p.value_b=ifelse(p.value_a<0.001, "<0.001", p.value_a),  
+        P.value=paste("p = ", p.value_b, sep = ""))
+
+ordered_coef_rich$P.value <- recode(ordered_coef_rich$P.value, `p = <0.001` = "p < 0.001")
+
+ordered_coef_rich$term <- recode_factor(ordered_coef_rich$term, Mother_EthnicityOther = "Other ethnicities",
+                                       Mother_EthnicityWollof = "Wollof ethnicity",  
+                                       Mother_EthnicityJola = "Jola ethnicity",
+                                        Mother_EthnicityFula = "Fula ethnicity", Mother_Age = "Maternal age",
+                                        `ParityPara >=4` = "Para ≥4", `ParityPara 3` = "Para 3", 
+                                       `ParityPara 2` = "Para 2", Time_pointyear_3 = "age = year 3",
+                                        Time_pointmonth_4 = "age = month 4",
+                                        Time_pointday_28 = "age = day 28",
+                                        Time_pointday_6 = "age = day_6",
+                                        sampling_seasonWet = "Wet season",
+                                        TreatmentAzi = "Azithromycin")
+  
+rich_regress <- ggplot(data = ordered_coef_rich, aes(estimate, term)) + geom_point()+ 
+  geom_vline(xintercept = 0, lty=3)+
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high, width = 0.25))+
+  theme_classic() +
+  theme(axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 10))+
+  geom_text(label=ordered_coef_rich$P.value, 
+            nudge_y = 0.1, 
+            nudge_x = c(1.5))+
+  labs(y=NULL, x= "Estimate effect on Species richness", tag = "b")+
+  scale_x_continuous(limits = c(-1.8, 3.0), n.breaks = 10)+
+  theme(axis.title = element_text(size = 12, vjust = 1))
+
+rich_regress
+
+shan_rich_rgress <- shan_regress/rich_regress
+shan_rich_rgress
+
+
+#univariate analysis of difference in Shannon diversity between trial arms with stratification
+
+shannon_plot1 <- clean_data %>% filter(Sample_type=="RS")%>% 
+  group_by(Sample_ID, Treatment, Time_point)%>% 
+  ggplot(aes(x=Time_point, y=shannon_div, color=Treatment))+
+  geom_point(position = 
+               position_jitterdodge(
+                 jitter.width = 0.2, jitter.height = 0.2, dodge.width = 1), alpha=0.6,
+             show.legend = FALSE)+
+  scale_color_manual(values = c("#FF6501", "#373A40"))+
+  geom_boxplot(aes(x=Time_point, y=shannon_div, color=Treatment),
+               alpha=0.6, position = position_dodge(width = 1), 
+               outlier.colour = NA, show.legend = FALSE)+
+  labs(x="Time_point", y="Shannon diversity", tag = "c")+
+  theme_light()+
+  theme(axis.title = element_text(size = 16),
+        axis.text.x = element_text(angle = 20, vjust = 0.5, size = 14),
+         axis.text.y = element_text(size = 12)) +
+  stat_compare_means(aes(group=Treatment), method = "wilcox.test", label = "p.format",
+                     show.legend = FALSE, label.y = c(1.1, 1.2, 1.3, 1.2, 1.1))
+shannon_plot1
+
+
+shannon_trt_season <- clean_data %>% 
+  filter(Sample_type=="RS", Time_point !="year_3", sampling_season !="NA")%>%
+  group_by(Sample_ID, Treatment, Time_point, sampling_season)%>% 
+  ggplot(aes(x=Time_point, y=shannon_div, color=Treatment))+
+  geom_point(position = 
+               position_jitterdodge(
+                 jitter.width = 0.2, jitter.height = 0.2, dodge.width = 1), alpha=0.6,
+             show.legend = TRUE)+
+  scale_color_manual(values = c("#FF6501", "#373A40"))+
+  geom_boxplot(aes(x=Time_point, y=shannon_div, color=Treatment),
+               alpha=0.6, position = position_dodge(width = 1), 
+               outlier.colour = NA, show.legend = TRUE)+
+  labs(x="Time_point", y="Shannon diversity", tag = "d")+
+  theme_light()+
+  theme(axis.title = element_text(size = 16),
+        axis.text.x = element_text(angle = 0, vjust = 0.5, size = 14),
+        axis.text.y = element_text(size = 12)) +
+  stat_compare_means(aes(group=Treatment), method = "wilcox.test", label = "p.format",
+                     show.legend = FALSE, label.y = c(1.2, 1.2))+
+  facet_wrap(facets = "sampling_season", scales = "free_x")
+ 
+shannon_trt_season
+
+
+clean_data$Sample_ID <- as.character(clean_data$Sample_ID)
+
+parity_data <- clean_data%>% filter(Sample_type=="RS")%>%
+mutate(parity= ifelse(Parity!="Primipara", "multipara", Parity), .after = Parity)
+
+parity_data$parity <- factor(parity_data$parity, 
+                            levels = c("Primipara", "multipara"))
+
+
+
+shannon_parity <- parity_data %>% filter(Sample_type=="RS", Time_point !="year_3")%>%
+  group_by(Sample_ID, Treatment, Time_point, parity)%>% 
+  ggplot(aes(x=Time_point, y=shannon_div, color=Treatment))+
+  geom_point(position = 
+               position_jitterdodge(
+                 jitter.width = 0.2, jitter.height = 0.2, dodge.width = 1), alpha=0.6,
+             show.legend = TRUE)+
+  scale_color_manual(values = c("#FF6501", "#373A40"))+
+  geom_boxplot(aes(x=Time_point, y=shannon_div, color=Treatment),
+               alpha=0.6, position = position_dodge(width = 1), 
+               outlier.colour = NA, show.legend = TRUE)+
+  labs(x="Time_point", y="Shannon diversity", tag = "e")+
+  theme_light()+
+  theme(axis.title = element_text(size = 16),
+        axis.text.x = element_text(angle = 0, vjust = 0.5, size = 14)) +
+  stat_compare_means(aes(group=Treatment), method = "wilcox.test", label = "p.format",
+                     show.legend = FALSE, label.y = c(1.2, 1.2))+
+  facet_wrap(facets = "parity", scales = "free_x")
+ 
+shannon_parity
+
+shannon_combined <- shannon_plot1 + shannon_trt_season /shannon_parity + plot_layout(widths = c(0.5, 1))
+shannon_combined
+
+
+#compare shannon diversity by age in each trial arm
+
+library(emmeans)
+
+#Azi
+azi_shann <- clean_data  %>% filter(Treatment=="Azi")
+
+azi_lm <- lmer(shannon_div ~ Time_point + Mother_Ethnicity + sampling_season + Parity + (1|Rand_No), data = azi_shann)
+
+azi_lm %>% broom.mixed::tidy()
+
+d0_vs_all_azi <- emmeans(azi_lm, trt.vs.ctrlk ~ Time_point, ref = 1, adjst="Tukey") #day-0 vs all
+d0_vs_all_azi$contrasts
+
+
+#placebo
+pb_shann <- clean_data %>% filter(Treatment=="Placebo")
+
+pb_lm <- lmer(shannon_div ~ Time_point + Mother_Ethnicity + sampling_season + Parity + (1|Rand_No), data = pb_shann)
+
+pb_lm %>% broom.mixed::tidy()
+
+d0_vs_all_pb <- emmeans(pb_lm, trt.vs.ctrlk ~ Time_point, ref = 1, adjst="Tukey") #day-0 vs all
+d0_vs_all_pb$contrasts
+
+
+```
+
+
+
+
+
+```{r calculate dissimilarity and compare community composition, echo=TRUE}
+
+filtered_samp_data <- clean_data %>% filter(species_richness >2)
+  
+clean_ft <- filtered_samp_data %>% select(Sample_ID, Taxid, rel_abund) %>% 
+  pivot_wider(., id_cols = Sample_ID, names_from = Taxid, 
+              values_from = rel_abund,
+              values_fill = 0)%>%
+  column_to_rownames(var = "Sample_ID") %>% data.matrix()
+
+row.names(clean_ft)
+
+is.matrix(clean_ft) #should be true
+is.numeric(clean_ft) #should be true
+
+ps_clean_ft <- otu_table(clean_ft, taxa_are_rows = FALSE)
+
+ps_sampMetadata <- final_samp_data %>% filter(sampling_season != "")%>%
+mutate(parity= ifelse(Parity!="Primipara", "multipara", Parity), .after = Parity) %>% 
+  column_to_rownames(var = "Sample_ID") 
+
+ps_sampMetadata$Time_point <- recode(ps_sampMetadata$Time_point, day_6="day_06")
+
+clean_ps_obj <- phyloseq(otu_table(ps_clean_ft), sample_data(ps_sampMetadata))
+
+
+set.seed(21965)
+
+#calculate dissimilarity in community composition
+
+library(vegan)
+
+#Age comparisons
+
+#beta diversity by age all combined
+
+age_meta <- sample_data(clean_ps_obj) %>% as_tibble(rownames="Sample_ID") 
+age_ft <- as(otu_table(clean_ps_obj), 'matrix') 
+
+betadiv_age <- adonis2(age_ft ~ Time_point, method = "bray", data = age_meta, 
+                       permutations = with(age_meta, how(nperm=999, blocks=Rand_No)))
+betadiv_age
+
+
+#beta diversity by age in azi arm
+
+ps_azi <- subset_samples(clean_ps_obj, Treatment=="Azi")
+
+azi_meta <- sample_data(ps_azi) %>% as_tibble(rownames="Sample_ID") 
+
+azi_ft <- as(otu_table(ps_azi), 'matrix') 
+
+betadiv_azi <- adonis2(azi_ft ~ Time_point + Mother_Ethnicity + 
+                         sampling_season + parity,
+                      method = "bray", data = azi_meta, 
+                       permutations = with(azi_meta, how(nperm=999, blocks=Rand_No)))
+betadiv_azi
+
+#day 0 vs day 6 azi
+d0_d6_meta_azi <- age_meta%>% filter(Treatment=="Azi", Time_point=="day_0" | Time_point=="day_06")
+d0d6_ps_azi <- subset_samples(ps_azi, Time_point=="day_0" | Time_point=="day_06")
+d0d6_ft_azi <- as(otu_table(d0d6_ps_azi), 'matrix') 
+
+betadiv_d0d6_azi <- adonis2(d0d6_ft_azi ~ Time_point, method = "bray", data = d0_d6_meta_azi)
+betadiv_d0d6_azi
+
+#day 0 vs day 28 azi
+d0_d28_meta_azi <- age_meta%>% filter(Treatment=="Azi", Time_point=="day_0" | Time_point=="day_28")
+d0d28_ps_azi <- subset_samples(ps_azi, Time_point=="day_0" | Time_point=="day_28")
+d0d28_ft_azi <- as(otu_table(d0d28_ps_azi), 'matrix') 
+
+betadiv_d0d28_azi <- adonis2(d0d28_ft_azi ~ Time_point, method = "bray", data = d0_d28_meta_azi)
+betadiv_d0d28_azi
+
+#day 0 vs month4 azi
+d0_m4_meta_azi <- age_meta%>% filter(Treatment=="Azi", Time_point=="day_0" | Time_point=="month_4")
+d0m4_ps_azi <- subset_samples(ps_azi, Time_point=="day_0" | Time_point=="month_4")
+d0m4_ft_azi <- as(otu_table(d0m4_ps_azi), 'matrix') 
+
+betadiv_d0m4_azi <- adonis2(d0m4_ft_azi ~ Time_point, method = "bray", data = d0_m4_meta_azi)
+betadiv_d0m4_azi
+
+#day 0 vs year3 azi
+d0_yr3_meta_azi <- age_meta%>% filter(Treatment=="Azi", Time_point=="day_0" | Time_point=="year_3")
+d0yr3_ps_azi <- subset_samples(ps_azi, Time_point=="day_0" | Time_point=="year_3")
+d0yr3_ft_azi <- as(otu_table(d0yr3_ps_azi), 'matrix') 
+
+betadiv_d0yr3_azi <- adonis2(d0yr3_ft_azi ~ Time_point, method = "bray", data = d0_yr3_meta_azi)
+betadiv_d0yr3_azi
+
+
+#beta diversity by age in placebo arm
+
+ps_pb <- subset_samples(clean_ps_obj, Treatment=="Placebo")
+
+pb_meta <- sample_data(ps_pb) %>% as_tibble(rownames="Sample_ID") 
+
+pb_ft <- as(otu_table(ps_pb), 'matrix') 
+
+betadiv_pb <- adonis2(pb_ft ~ Time_point + Mother_Ethnicity + 
+                        sampling_season + parity,
+                      method = "bray", data = pb_meta, 
+                       permutations = with(pb_meta, how(nperm=999, blocks=Rand_No)))
+betadiv_pb
+
+#day 0 vs day 6 placebo
+d0_d6_meta_pb <- age_meta%>% filter(Treatment=="Placebo", Time_point=="day_0" | Time_point=="day_06")
+d0d6_ps_pb <- subset_samples(ps_pb, Time_point=="day_0" | Time_point=="day_06")
+d0d6_ft_pb <- as(otu_table(d0d6_ps_pb), 'matrix') 
+
+betadiv_d0d6_pb <- adonis2(d0d6_ft_pb ~ Time_point, method = "bray", data = d0_d6_meta_pb)
+betadiv_d0d6_pb
+
+#day 0 vs day 28 placebo
+d0_d28_meta_pb <- age_meta%>% filter(Treatment=="Placebo", Time_point=="day_0" | Time_point=="day_28")
+d0d28_ps_pb <- subset_samples(ps_pb, Time_point=="day_0" | Time_point=="day_28")
+d0d28_ft_pb <- as(otu_table(d0d28_ps_pb), 'matrix') 
+
+betadiv_d0d28_pb <- adonis2(d0d28_ft_pb ~ Time_point, method = "bray", data = d0_d28_meta_pb)
+betadiv_d0d28_pb
+
+#day 0 vs month4 placebo
+d0_m4_meta_pb <- age_meta%>% filter(Treatment=="Placebo", Time_point=="day_0" | Time_point=="month_4")
+d0m4_ps_pb <- subset_samples(ps_pb, Time_point=="day_0" | Time_point=="month_4")
+d0m4_ft_pb <- as(otu_table(d0m4_ps_pb), 'matrix') 
+
+betadiv_d0m4_pb <- adonis2(d0m4_ft_pb ~ Time_point, method = "bray", data = d0_m4_meta_pb)
+betadiv_d0m4_pb
+
+#day 0 vs year3 placebo
+d0_yr3_meta_pb <- age_meta%>% filter(Treatment=="Placebo", Time_point=="day_0" | Time_point=="year_3")
+d0yr3_ps_pb <- subset_samples(ps_pb, Time_point=="day_0" | Time_point=="year_3")
+d0yr3_ft_pb <- as(otu_table(d0yr3_ps_pb), 'matrix') 
+
+betadiv_d0yr3_pb <- adonis2(d0yr3_ft_pb ~ Time_point, method = "bray", data = d0_yr3_meta_pb)
+betadiv_d0yr3_pb
+
+
+#beta diversity between arms at day0
+
+ps_day0 <- subset_samples(clean_ps_obj, Time_point=="day_0") 
+
+day0_meta <- sample_data(ps_day0) %>% as_tibble(rownames="Sample_ID") 
+
+day0_ft <- as(otu_table(ps_day0), 'matrix') 
+
+betadiv_d0 <- adonis2(day0_ft ~ Treatment, 
+                      method = "bray", data = day0_meta, 
+                       permutations = with(day0_meta, how(nperm=999)))
+betadiv_d0
+
+
+#beta diversity between arms at day6
+
+ps_day6 <- subset_samples(clean_ps_obj, Time_point=="day_06")
+
+day6_meta <- sample_data(ps_day6) %>% as_tibble(rownames="Sample_ID") 
+
+day6_ft <- as(otu_table(ps_day6), 'matrix') 
+
+betadiv_d6 <- adonis2(day6_ft ~ Treatment, 
+                      method = "bray", data = day6_meta, 
+                       permutations = with(day6_meta, how(nperm=999)))
+betadiv_d6
+
+
+#beta diversity between arms at day28
+
+ps_day28 <- subset_samples(clean_ps_obj, Time_point=="day_28")
+
+day28_meta <- sample_data(ps_day28) %>% as_tibble(rownames="Sample_ID") 
+
+day28_ft <- as(otu_table(ps_day28), 'matrix') 
+
+betadiv_d28 <- adonis2(day28_ft ~ Treatment, 
+                      method = "bray", data = day28_meta, 
+                       permutations = with(day28_meta, how(nperm=999)))
+betadiv_d28
+
+
+#beta diversity between arms at month4
+
+ps_m4 <- subset_samples(clean_ps_obj, Time_point=="month_4")
+
+m4_meta <- sample_data(ps_m4) %>% as_tibble(rownames="Sample_ID") 
+
+m4_ft <- as(otu_table(ps_m4), 'matrix') 
+
+betadiv_m4 <- adonis2(m4_ft ~ Treatment, 
+                      method = "bray", data = m4_meta, 
+                       permutations = with(m4_meta, how(nperm=999)))
+betadiv_m4
+
+
+#beta diversity between arms at year3
+
+ps_yr3 <- subset_samples(clean_ps_obj, Time_point=="year_3")
+
+yr3_meta <- sample_data(ps_yr3) %>% as_tibble(rownames="Sample_ID") 
+
+yr3_ft <- as(otu_table(ps_yr3), 'matrix') 
+
+betadiv_yr3 <- adonis2(yr3_ft ~ Treatment, 
+                      method = "bray", data = yr3_meta, 
+                       permutations = with(m4_meta, how(nperm=999)))
+betadiv_yr3
+
+
+#plot ordinations for community composition
+
+ord_bray <- ordinate(clean_ps_obj, method = "NMDS", distance = "bray")
+
+nmds_points <- ord_bray[["points"]] %>% as.data.frame()
+
+nmds_points%>%summarise(MDS1)%>% summary() 
+nmds_points%>%summarise(MDS2)%>% summary()
+
+#community composition by age
+
+#Azi
+
+clean_ps_obj_azi <- subset_samples(clean_ps_obj, Treatment=="Azi")
+
+ord_azi = ordinate(clean_ps_obj_azi, method = "NMDS", distance = "bray", k=3)
+  
+nmd_plot2 <- plot_ordination(clean_ps_obj_azi, ordination = ord_azi, axes = 1:2, color = "Time_point")+
+  geom_point(size=2, alpha=0.6)+ 
+  scale_color_manual(values = c("#FF6501", "#373A40", "green", "blue", "#B78326")) +
+  stat_ellipse(aes(x=NMDS1, y=NMDS2, linetype=Time_point))+ 
+  coord_fixed()+
+  labs(title = "Azi", tag = "b")+
+  theme_classic()+
+  theme(axis.text = element_text(size = 16))
+
+nmd_label_age_azi <- data.frame(label=c("All time_points [R^2 = 0.071, p < 0.001]",
+                                    "day0-day6 [R^2 = 0.025, p = 0.505]",
+                                    "day0-day28 [R^2 = 0.028, p = 0.381]",
+                                    "day0-month4 [R^2 = 0.034, p = 0.138]",
+                                    "day0-year3 [R^2 = 0.087, p < 0.001]"),
+                          NMDS1 = c(-0.3),
+                          NMDS2 = c(2.1, 1.95, 1.8, 1.65, 1.5))
+   
+nmd_age_azi <- nmd_plot2 + geom_text(mapping = aes(x=NMDS1, y=NMDS2, 
+                                                   label = label, color=NULL), 
+                     data = nmd_label_age_azi, size = 4, show.legend = FALSE) 
+nmd_age_azi
+
+#Placebo
+clean_ps_obj_pb <- subset_samples(clean_ps_obj, Treatment=="Placebo")
+
+ord_pb = ordinate(clean_ps_obj_pb, method = "NMDS", distance = "bray", k=3)
+
+nmd_plot3 <- plot_ordination(clean_ps_obj_pb, ordination = ord_pb, axes = 1:2, color = "Time_point")+
+  geom_point(size=2, alpha=0.6)+ 
+  scale_color_manual(values = c("#FF6501", "#373A40", "green", "blue", "#B78326")) +
+  stat_ellipse(aes(x=NMDS1, y=NMDS2, linetype=Time_point))+ 
+  coord_fixed()+
+  labs(title = "Placebo", tag = "c")+
+  theme_classic()+
+  theme(axis.text = element_text(size = 16))
+
+nmd_label_age_pb <- data.frame(label=c("All time_points [R^2 = 0.081, p < 0.001]",
+                                    "day0-day6 [R^2 = 0.017, p = 0.164]",
+                                    "day0-day28 [R^2 = 0.030, p = 0.176]",
+                                    "day0-month4 [R^2 = 0.037, p = 0.093]",
+                                    "day0-year3 [R^2 = 0.075, p < 0.001]"),
+                          NMDS1 = c(1),
+                          NMDS2 = c(2.2, 2.05, 1.9, 1.75, 1.6))
+   
+nmd_age_pb <- nmd_plot3 + geom_text(mapping = aes(x=NMDS1, y=NMDS2, 
+                                                   label = label, color=NULL), 
+                     data = nmd_label_age_pb, size = 4, show.legend = FALSE) 
+nmd_age_pb
+
+
+nmd_age_combined <- nmd_age_azi + nmd_age_pb
+nmd_age_combined
+
+#community composition by treatment
+nmd_plot1 <- plot_ordination(clean_ps_obj, ordination = ord_bray, color = "Treatment")+
+  geom_point(size=2, alpha=0.6)+ 
+  scale_color_manual(values = c("#FF6501", "#373A40")) +
+  stat_ellipse(aes(x=NMDS1, y=NMDS2, linetype=Treatment))+ 
+  coord_fixed()+
+  labs(tag = "a")+
+  theme_classic()+
+  theme(axis.text = element_text(size = 14))+
+  facet_wrap(facets = "Time_point", nrow = 2, ncol = 3)
+
+nmd_label_trt <- data.frame(label=c("R^2 = 0.031, p = 0.265", "R^2 = 0.016, p = 0.714", 
+                                  "R^2 = 0.005, p = 0.993", "R^2 = 0.020, p = 0.363",
+                                  "R^2 = 0.040, p = 0.007"),
+                          Time_point = c("day_0", "day_06", "day_28", 
+                                         "month_4", "year_3"),
+                          NMDS1 = c(0),
+                          NMDS2 = c(1.5))
+   
+nmd_trt <- nmd_plot1 + geom_text(mapping = aes(x=NMDS1, y=NMDS2, 
+                                                   label = label, color=NULL), 
+                     data = nmd_label_trt, size = 4, show.legend = FALSE,) 
+nmd_trt
+
+
+```
+
+
+```{r create feature_table for clustering in mothur, echo=TRUE}
+
+samp_data_mothur <- clean_data %>% ungroup()%>% 
+  filter(Sample_type =="RS", species_richness > 2)%>% 
+  mutate(numOtus = length(unique(Taxid))) 
+
+samp_data_mothur$Taxid <- gsub(" ", "_", samp_data_mothur$Taxid)
+
+otu_and_label <- samp_data_mothur%>% select(Sample_ID, numOtus)
+  
+otu_and_label$label <- 0.1
+
+clean_ft_mothur <- samp_data_mothur %>% select(Sample_ID, Taxid, count) %>% 
+  pivot_wider(., id_cols = Sample_ID, names_from = Taxid, values_from = count,
+              values_fill = 0) %>% 
+  inner_join(., otu_and_label, by="Sample_ID") %>%
+  rename("Group" = Sample_ID) %>% relocate(label, .before = Group)%>%
+  relocate(numOtus, .after = Group)
+
+clean_ft_mothur$Group <- gsub("_", "u", clean_ft_mothur$Group)
+
+# write_tsv(clean_ft_mothur,
+#           file = "community_clustering_with_mothur/final.clean.mothur.feature.table.shared")
+
+
+```
+
+
+
+```{r cluster analysis, echo=TRUE}
+
+#import fungal cluster data
+fungal_cluster <- 
+  read_tsv(file = "community_clustering_with_mothur/final.clean.mothur.feature.table.0.1.dmm.mix.design", col_names = c("Sample_ID", "cluster")) %>% 
+  distinct(Sample_ID, .keep_all = TRUE)
+
+fungal_cluster$Sample_ID <- gsub("u", "_", fungal_cluster$Sample_ID)
+
+# write_csv(fungal_cluster, file = "fungal_community_clustering_result.csv")
+
+
+clustfreq1 <- fungal_cluster %>% group_by(cluster)%>% 
+  summarise(length(Sample_ID))  
+
+clustfreq1
+
+fungal_cluster1a <- fungal_cluster %>% rename("fungCluster" = cluster) 
+ 
+detailed_fungclust_data <- fungal_cluster1a %>%
+  inner_join(., clean_data, by = "Sample_ID") %>% 
+  filter(Sample_type=="RS") %>% 
+  distinct(Sample_ID, .keep_all = TRUE) 
+
+detailed_fungclust_data$fungCluster <- gsub("Partition", "fungCluster",
+                                   detailed_fungclust_data$fungCluster)
+
+
+#explore cluster dynamics by logistic regression
+
+fungclust_lm_data <- detailed_fungclust_data%>% 
+  mutate(fc_binary=ifelse(fungCluster=="fungCluster_3", 0, 1), .after = fungCluster,
+         parity= ifelse(Parity!="Primipara", "multipara", "Primipara"))%>% 
+  relocate(Parity, .before = parity)%>% filter(Time_point!="year_3")
+
+fungclust_lm_data$sampling_season <- factor(fungclust_lm_data$sampling_season,
+                                            levels = c("Dry", "Wet"))
+
+fungclust_lm_data$Treatment <- factor(fungclust_lm_data$Treatment,
+                                            levels = c("Placebo", "Azi"))
+
+fungclust_lm_data$parity <- factor(fungclust_lm_data$parity,
+                                            levels = c("Primipara", "multipara"))
+
+
+fungclust_lma <- glmer(fc_binary ~ Treatment + sampling_season + 
+                      parity + Treatment*Time_point + Treatment*sampling_season + 
+                    (1|Rand_No), data = fungclust_lm_data, family=binomial) %>%
+  broom.mixed::tidy(conf.int=TRUE)
+
+fungclust_lma$estimate <- exp(fungclust_lma$estimate)
+fungclust_lma$std.error <- exp(fungclust_lma$std.error)
+
+fungclust_lma2 <- fungclust_lma %>% 
+  mutate(conf.low = estimate - (1.96*std.error), conf.high = estimate + (1.96*std.error)) %>% 
+  filter(term !="(Intercept)", term != "sd__(Intercept)") %>%
+  mutate(term= fct_reorder(term, estimate), p.value_a=round(p.value, digits = 3),
+        p.value_b=ifelse(p.value_a<0.001, "<0.001", p.value_a),
+        P.value=paste("p = ", p.value_b, sep = ""))
+
+
+ordered_coef_fclust <- fungclust_lma2
+  
+ordered_coef_fclust$term <- recode_factor(ordered_coef_fclust$term, 
+       `paritymultipara` = "multiparity", 
+       `TreatmentAzi:Time_pointmonth_4` = "Azi*age - month_4",
+       `TreatmentAzi:Time_pointday_28` = "Azi*age - day_28",
+       `TreatmentAzi:Time_pointday_6` = "Azi*age - day_6",
+       Time_pointmonth_4 = "age = month_4", Time_pointday_28 = "age = day_28",
+        `Time_pointday_6` = "age = day_6", 
+       `TreatmentAzi:sampling_seasonWet` = "Azi*season",
+       sampling_seasonWet = "Wet season", TreatmentAzi = "Azithromycin")
+
+
+fclust_regress <- ggplot(data = ordered_coef_fclust, aes(estimate, term)) + geom_point()+ 
+  geom_vline(xintercept = 1, lty=3)+
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high, width = 0.25))+
+  theme_classic() +
+  geom_text(label=ordered_coef_fclust$P.value, 
+            nudge_y = 0.2, 
+            nudge_x = c(2))+
+  labs(y=NULL, x= "Odds of having fungCluster_1 or fungCluster_2", tag = "a")+
+  scale_x_continuous(limits = c(-6.0, 10), n.breaks = 9)+
+  theme(axis.title = element_text(size = 12, vjust = 1),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10))
+
+fclust_regress
+
+
+#fungal cluster frequency by treatment
+
+fungclust_freq <- detailed_fungclust_data %>% 
+  group_by(Treatment, Time_point, fungCluster, parity, 
+           Rand_No, sampling_season, Mother_Ethnicity)%>%
+  summarise(clust_freq_fung= length(Sample_ID))
+
+fungclust_freq
+
+fungclust_freq$Time_point <- factor(fungclust_freq$Time_point, 
+                                    levels = c("day_0", "day_6", "day_28",
+                                                    "month_4", "year_3"))
+
+fungclust_freq_plot1 <- fungclust_freq %>% 
+  ggplot(aes(x=Treatment, y=clust_freq_fung, fill=fungCluster)) +
+  geom_col(position = 'fill', width = 0.6, show.legend = FALSE) +
+  scale_x_discrete () +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent, ) +
+  labs(x= " ", y= "frequency", tag= "c") +
+  scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
+  theme(axis.title = element_text(size = 14), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        axis.text = element_text(size = 12))+
+  facet_wrap(facets = "Time_point", scales = "free_x")
+
+fungclust_freq_plot1
+
+
+#cluster transitions over time 
+
+#import bacterial cluster data
+bactcluster_data <- read_excel(path = "sample_bacterial_cluster_type_data.xlsx")
+
+bactcluster_data$Rand_No <- as.double(bactcluster_data$Rand_No)
+
+d28_cluster_data <- bactcluster_data %>% filter(Time_point=="day_28") %>%
+  select(Rand_No, partition)
+
+
+bactClust_freq <- bactcluster_data %>%
+  group_by(Treatment, Time_point, partition)%>%
+  summarise(clust_freq_bact= length(Sample_ID)) %>%
+  rename(" bactCluster"=partition)
+
+
+bactClust_freq$` bactCluster` <- gsub("Partition", "bactCluster",
+                                      bactClust_freq$` bactCluster`)
+
+bactClust_freq
+
+bactcluster_d28 <- bactcluster_data %>% filter(Time_point=="day_28")%>%
+  select(Rand_No, partition) %>% rename("bactCluster" = partition)
+
+
+detailed_fungclust_data$Sample_ID <- 
+  gsub("_0|_1|_2|_3|_4|_5|_6|_7|_8|_9", 
+       "", detailed_fungclust_data$Sample_ID)
+
+
+dt_fungclust_data1a <- left_join(detailed_fungclust_data, bactcluster_d28,
+                                 by="Rand_No") 
+
+dt_fungclust_data1a$bactCluster <- 
+  gsub("Partition", "bactCluster", dt_fungclust_data1a$bactCluster)
+
+dt_fungclust_data1b <- dt_fungclust_data1a %>% 
+  group_by(Sample_ID) %>% mutate(freq = length(Sample_ID))
+
+dt_fungclust_data1b$Time_point <- factor(dt_fungclust_data1b$Time_point,
+                                         levels = c("day_0", "day_6", "day_28",
+                                                    "month_4", "year_3"))
+
+library(ggalluvial)
+library(scales)
+
+fungclust_alluv <- dt_fungclust_data1b %>%
+  ggplot(aes(x=Time_point, stratum=fungCluster, alluvium=Rand_No, y=freq,
+             fill=fungCluster), label=fungCluster)+
+  scale_x_discrete(expand = c(0.01, 0.01)) +
+  scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
+  geom_flow() +
+  geom_stratum(alpha = 0.6) +
+  theme_classic()+
+  theme(axis.title = element_text(size = 14), 
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        axis.text = element_text(size = 12))+
+  labs(tag = "d")+
+  geom_text(stat = "stratum", size = 2.5, 
+            aes(label = percent(after_stat(prop), accuracy=.1)))+
+  facet_wrap(facets = "Treatment", scales = "free_x")
+
+fungclust_alluv
+
+
+fungclust_combined <- fungclust_freq_plot1 + fungclust_alluv + plot_layout(widths = c(0.5, 1))
+fungclust_combined
+
+
+```
+
+
+```{r differential taxon abundance analysis, echo=TRUE}
+
+library(Maaslin2)
+
+
+diff_metadata <- ps_sampMetadata %>% rownames_to_column(var = "Sample_ID")
+
+diff_metadata$Time_point <- recode(diff_metadata$Time_point, day_06 ="day_6")
+
+diff_metadata$Sample_ID <- 
+  gsub("_0|_1|_2|_3|_4|_5|_6|_7|_8|_9", 
+       "", diff_metadata$Sample_ID)
+
+
+diff_fungbact_data <- dt_fungclust_data1a %>% select(Sample_ID, fungCluster, bactCluster)
+
+diff_metadata1a <- diff_metadata %>% 
+  left_join(., diff_fungbact_data, by="Sample_ID") 
+
+
+diff_ft <- clean_ft %>% as.data.frame()%>% rownames_to_column(var = "Sample_ID")
+
+diff_ft$Sample_ID <- 
+  gsub("_0|_1|_2|_3|_4|_5|_6|_7|_8|_9", 
+       "", diff_ft$Sample_ID)
+
+diff_ft2 <- diff_ft %>% column_to_rownames(var = "Sample_ID")
+
+diff_metadata2 <- inner_join(diff_ft, diff_metadata1a, by="Sample_ID") %>% 
+  column_to_rownames(var = "Sample_ID")
+
+
+diff_metadata2$Treatment <- factor(diff_metadata2$Treatment, 
+                                    levels = c("Placebo", "Azi"))
+
+diff_metadata2$Time_point <- factor(diff_metadata2$Time_point, 
+                                    levels = c("day_0", "day_6", "day_28",
+                                               "month_4", "year_3"))
+
+diff_metadata2$fungCluster <- factor(diff_metadata2$fungCluster, 
+                                    levels = c("fungCluster_3", "fungCluster_2", 
+                                               "fungCluster_1"))
+
+diff_metadata2$bactCluster <- factor(diff_metadata2$bactCluster, 
+                                    levels = c("bactCluster_2", "bactCluster_1"))
+
+diff_metadata2$Mother_Ethnicity <- factor(diff_metadata2$Mother_Ethnicity, 
+                                    levels = c("Mandinka", "Fula", "Wollof",
+                                               "Jola", "Other"))
+
+diff_metadata2$BF_in_first_six_months <- factor(diff_metadata2$BF_in_first_six_months, 
+                                    levels = c("Exclusive", "Complementary", 
+                                               "Predominant"))
+
+diff_metadata2$sampling_season <- factor(diff_metadata2$sampling_season, 
+                                    levels = c("Dry", "Wet"))
+
+diff_metadata2$parity <- factor(diff_metadata2$parity, 
+                                    levels = c("Primipara", "multipara"))
+
+
+diff_meta_azi <- diff_metadata2 %>% filter(Treatment=="Azi")
+
+diff_meta_pb <- diff_metadata2 %>% filter(Treatment=="Placebo")
+
+
+diff_meta_d0 <- diff_metadata2 %>% filter(Time_point=="day_0")
+
+diff_meta_d6 <- diff_metadata2 %>% filter(Time_point=="day_6")
+
+diff_meta_d28 <- diff_metadata2 %>% filter(Time_point=="day_28")
+
+diff_meta_m4 <- diff_metadata2 %>% filter(Time_point=="month_4")
+
+diff_meta_yr3 <- diff_metadata2 %>% filter(Time_point=="year_3")
+
+diff_meta_dry <- diff_metadata2 %>% filter(sampling_season=="Dry")
+diff_meta_wet <- diff_metadata2 %>% filter(sampling_season=="Wet")
+
+diff_abund_azi <- Maaslin2(input_data = diff_ft2,
+                       input_metadata = diff_meta_azi,
+                       output = "maaslin2_results_azi",
+                       fixed_effects = c("Time_point",
+                                         "BF_in_first_six_months", "parity",
+                                         "Mother_Age", "sampling_season"),
+                       normalization = "NONE",
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.0001)
+
+
+diff_abund_pb <- Maaslin2(input_data = diff_ft2,
+                       input_metadata = diff_meta_pb,
+                       output = "maaslin2_results_placebo",
+                       fixed_effects = c("Time_point",
+                                         "BF_in_first_six_months", "parity",
+                                         "Mother_Age", "sampling_season"),
+                       normalization = "NONE",
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.0001)
+
+diff_abund_d0 <- Maaslin2(input_data = diff_ft2, 
+                       input_metadata = diff_meta_d0, 
+                       output = "maaslin2_results_day0", 
+                       fixed_effects = c("Treatment"),
+                       normalization = "NONE", 
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.0001)
+
+diff_abund_d6 <- Maaslin2(input_data = diff_ft2, 
+                       input_metadata = diff_meta_d6, 
+                       output = "maaslin2_results_day6", 
+                       fixed_effects = c("Treatment"),
+                       normalization = "NONE", 
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.001)
+
+diff_abund_d28 <- Maaslin2(input_data = diff_ft2, 
+                       input_metadata = diff_meta_d28, 
+                       output = "maaslin2_results_day28", 
+                       fixed_effects = c("Treatment"),
+                       normalization = "NONE", 
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.001)
+
+diff_abund_m4 <- Maaslin2(input_data = diff_ft2, 
+                       input_metadata = diff_meta_m4, 
+                       output = "maaslin2_results_month4", 
+                       fixed_effects = c("Treatment"),
+                       normalization = "NONE", 
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.001)
+
+diff_abund_yr3 <- Maaslin2(input_data = diff_ft2, 
+                       input_metadata = diff_meta_yr3, 
+                       output = "maaslin2_results_year3", 
+                       fixed_effects = c("Treatment"),
+                       normalization = "NONE", 
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.001)
+
+
+diff_abund_mixed <- Maaslin2(input_data = diff_ft2, 
+                       input_metadata = diff_metadata2, 
+                       output = "maaslin2_results_mixed", 
+                       fixed_effects = c("Time_point", "Mother_Ethnicity", "parity", 
+                                         "BF_in_first_six_months", "sampling_season",
+                                         "Mother_Age", "fungCluster", "bactCluster"),
+                       random_effects = c("Rand_No"),
+                       normalization = "NONE", 
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.0001)
+
+diff_abund_dry <- Maaslin2(input_data = diff_ft2, 
+                       input_metadata = diff_meta_dry, 
+                       output = "maaslin2_results_dry_season", 
+                       fixed_effects = c("Treatment"),
+                       normalization = "NONE", 
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.001)
+
+
+diff_abund_wet <- Maaslin2(input_data = diff_ft2, 
+                       input_metadata = diff_meta_wet, 
+                       output = "maaslin2_results_wet_season", 
+                       fixed_effects = c("Treatment"),
+                       normalization = "NONE", 
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.001)
+
+
+```
+
+
+```{r heatmap, echo=TRUE}
+
+library(ggtext)
+
+hc <- function(x) {
+  hclust(x, method="average") 
+}
+
+
+clust_data <- fungal_cluster %>% column_to_rownames(var = "Sample_ID") %>%
+  sample_data()
+
+clean_ps_obj2 <- merge_phyloseq(clean_ps_obj, clust_data)
+
+clean_ps_obj2a <- prune_taxa(names(sort(taxa_sums(clean_ps_obj2), TRUE))[1:20], clean_ps_obj2) # select top 20 taxa
+
+clust_group <- sample_data(clean_ps_obj2a)$cluster
+
+clust_Cols = RColorBrewer::brewer.pal(3,
+                                        "Accent")[as.integer(factor(clust_group))]
+
+heatmap(otu_table(clean_ps_obj2a), margins = c(14, 6),
+                 cexRow = 0.1, cexCol = 1, revC = FALSE,
+                 xlab = "Species", ylab = "Sample",
+                 hclustfun = hc,
+                 RowSideColors = clust_Cols)
+
+legend(x="bottomright", legend=c("fungClust_1", "fungClust_2", "fungClust_3"), 
+     fill=c("#7FC97F", "#BEAED4", "#FDC086"), title = "Cluster", cex = 0.8)
+
+```
+
