@@ -1454,30 +1454,6 @@ diff_meta_yr3 <- diff_metadata2 %>% filter(Time_point=="year_3")
 diff_meta_dry <- diff_metadata2 %>% filter(sampling_season=="Dry")
 diff_meta_wet <- diff_metadata2 %>% filter(sampling_season=="Wet")
 
-diff_abund_azi <- Maaslin2(input_data = diff_ft2,
-                       input_metadata = diff_meta_azi,
-                       output = "maaslin2_results_azi",
-                       fixed_effects = c("Time_point",
-                                         "BF_in_first_six_months", "parity",
-                                         "Mother_Age", "sampling_season"),
-                       normalization = "NONE",
-                       transform = "NONE",
-                       max_significance = 0.2,
-                       min_abundance = 0.0001,
-                       min_variance = 0.0001)
-
-
-diff_abund_pb <- Maaslin2(input_data = diff_ft2,
-                       input_metadata = diff_meta_pb,
-                       output = "maaslin2_results_placebo",
-                       fixed_effects = c("Time_point",
-                                         "BF_in_first_six_months", "parity",
-                                         "Mother_Age", "sampling_season"),
-                       normalization = "NONE",
-                       transform = "NONE",
-                       max_significance = 0.2,
-                       min_abundance = 0.0001,
-                       min_variance = 0.0001)
 
 diff_abund_d0 <- Maaslin2(input_data = diff_ft2, 
                        input_metadata = diff_meta_d0, 
@@ -1530,19 +1506,6 @@ diff_abund_yr3 <- Maaslin2(input_data = diff_ft2,
                        min_variance = 0.001)
 
 
-diff_abund_mixed <- Maaslin2(input_data = diff_ft2, 
-                       input_metadata = diff_metadata2, 
-                       output = "maaslin2_results_mixed", 
-                       fixed_effects = c("Time_point", "Mother_Ethnicity", "parity", 
-                                         "BF_in_first_six_months", "sampling_season",
-                                         "Mother_Age", "fungCluster", "bactCluster"),
-                       random_effects = c("Rand_No"),
-                       normalization = "NONE", 
-                       transform = "NONE",
-                       max_significance = 0.2,
-                       min_abundance = 0.0001,
-                       min_variance = 0.0001)
-
 diff_abund_dry <- Maaslin2(input_data = diff_ft2, 
                        input_metadata = diff_meta_dry, 
                        output = "maaslin2_results_dry_season", 
@@ -1563,6 +1526,20 @@ diff_abund_wet <- Maaslin2(input_data = diff_ft2,
                        max_significance = 0.2,
                        min_abundance = 0.0001,
                        min_variance = 0.001)
+
+
+diff_abund_mixed <- Maaslin2(input_data = diff_ft2, 
+                       input_metadata = diff_metadata2, 
+                       output = "maaslin2_results_mixed", 
+                       fixed_effects = c("Time_point", "Mother_Ethnicity", "parity", 
+                                         "BF_in_first_six_months", "sampling_season",
+                                         "Mother_Age", "fungCluster", "bactCluster"),
+                       random_effects = c("Rand_No"),
+                       normalization = "NONE", 
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.0001)
 
 
 ```
