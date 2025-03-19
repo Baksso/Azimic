@@ -43,7 +43,6 @@ plate4 <- read.csv(file = "mic2_myco_plate4_results_combined.csv")
 plate5 <- read.csv(file = "mic2_myco_plate5_results_combined.csv")
 plate6 <- read.csv(file = "mic2_myco_plate6_results_combined.csv")
 plate7 <- read.csv(file = "mic2_myco_plate7_results1_combined.csv")
-#plate7 <- read.csv(file = "plate7_repeat_results_combined.csv")
 
 plate1a <- run_data %>% filter(Plate =="plate1") %>% 
   select(Sample_ID, Barcode)%>% inner_join(., plate1, by="Barcode") %>%
@@ -1233,9 +1232,6 @@ fungclust_lma <- glmer(fc_binary ~ Treatment + sampling_season +
                     (1|Rand_No), data = fungclust_lm_data, family=binomial) %>%
   broom.mixed::tidy(conf.int=TRUE)
 
-fungclust_lma$estimate <- exp(fungclust_lma$estimate)
-fungclust_lma$std.error <- exp(fungclust_lma$std.error)
-
 fungclust_lma2 <- fungclust_lma %>% 
   mutate(conf.low = estimate - (1.96*std.error), conf.high = estimate + (1.96*std.error)) %>% 
   filter(term !="(Intercept)", term != "sd__(Intercept)") %>%
@@ -1243,10 +1239,13 @@ fungclust_lma2 <- fungclust_lma %>%
         p.value_b=ifelse(p.value_a<0.001, "<0.001", p.value_a),
         P.value=paste("p = ", p.value_b, sep = ""))
 
+fungclust_lma2$OR <- exp(fungclust_lma2$estimate)
+fungclust_lma2$LL_OR <- exp(fungclust_lma2$conf.low)
+fungclust_lma2$UL_OR <- exp(fungclust_lma2$conf.high)
 
-ordered_coef_fclust <- fungclust_lma2
+ordered_data_fclust <- fungclust_lma2
   
-ordered_coef_fclust$term <- recode_factor(ordered_coef_fclust$term, 
+ordered_data_fclust$term <- recode_factor(ordered_data_fclust$term, 
        `paritymultipara` = "multiparity", 
        `TreatmentAzi:Time_pointmonth_4` = "Azi*age - month_4",
        `TreatmentAzi:Time_pointday_28` = "Azi*age - day_28",
@@ -1257,21 +1256,20 @@ ordered_coef_fclust$term <- recode_factor(ordered_coef_fclust$term,
        sampling_seasonWet = "Wet season", TreatmentAzi = "Azithromycin")
 
 
-fclust_regress <- ggplot(data = ordered_coef_fclust, aes(estimate, term)) + geom_point()+ 
+fclust_regress <- ggplot(data = ordered_data_fclust, aes(OR, term)) + geom_point()+ 
   geom_vline(xintercept = 1, lty=3)+
-  geom_errorbar(aes(xmin = conf.low, xmax = conf.high, width = 0.25))+
+  geom_errorbar(aes(xmin = LL_OR, xmax = UL_OR, width = 0.25))+
   theme_classic() +
-  geom_text(label=ordered_coef_fclust$P.value, 
-            nudge_y = 0.2, 
+  geom_text(label=ordered_data_fclust$P.value, 
+            nudge_y = 0.25, 
             nudge_x = c(2))+
-  labs(y=NULL, x= "Odds of having fungCluster_1 or fungCluster_2", tag = "a")+
-  scale_x_continuous(limits = c(-6.0, 10), n.breaks = 9)+
+  labs(y=NULL, x= "Odds ratio of having fungCluster_1 or fungCluster_2")+
+  scale_x_continuous(limits = c(0, 22), n.breaks = 16)+
   theme(axis.title = element_text(size = 12, vjust = 1),
         axis.text.x = element_text(size = 10),
         axis.text.y = element_text(size = 10))
 
 fclust_regress
-
 
 #fungal cluster frequency by treatment
 
@@ -1454,6 +1452,30 @@ diff_meta_yr3 <- diff_metadata2 %>% filter(Time_point=="year_3")
 diff_meta_dry <- diff_metadata2 %>% filter(sampling_season=="Dry")
 diff_meta_wet <- diff_metadata2 %>% filter(sampling_season=="Wet")
 
+diff_abund_azi <- Maaslin2(input_data = diff_ft2,
+                       input_metadata = diff_meta_azi,
+                       output = "maaslin2_results_azi",
+                       fixed_effects = c("Time_point",
+                                         "BF_in_first_six_months", "parity",
+                                         "Mother_Age", "sampling_season"),
+                       normalization = "NONE",
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.0001)
+
+
+diff_abund_pb <- Maaslin2(input_data = diff_ft2,
+                       input_metadata = diff_meta_pb,
+                       output = "maaslin2_results_placebo",
+                       fixed_effects = c("Time_point",
+                                         "BF_in_first_six_months", "parity",
+                                         "Mother_Age", "sampling_season"),
+                       normalization = "NONE",
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.0001)
 
 diff_abund_d0 <- Maaslin2(input_data = diff_ft2, 
                        input_metadata = diff_meta_d0, 
@@ -1506,6 +1528,19 @@ diff_abund_yr3 <- Maaslin2(input_data = diff_ft2,
                        min_variance = 0.001)
 
 
+diff_abund_mixed <- Maaslin2(input_data = diff_ft2, 
+                       input_metadata = diff_metadata2, 
+                       output = "maaslin2_results_mixed", 
+                       fixed_effects = c("Time_point", "Mother_Ethnicity", "parity", 
+                                         "BF_in_first_six_months", "sampling_season",
+                                         "Mother_Age", "fungCluster", "bactCluster"),
+                       random_effects = c("Rand_No"),
+                       normalization = "NONE", 
+                       transform = "NONE",
+                       max_significance = 0.2,
+                       min_abundance = 0.0001,
+                       min_variance = 0.0001)
+
 diff_abund_dry <- Maaslin2(input_data = diff_ft2, 
                        input_metadata = diff_meta_dry, 
                        output = "maaslin2_results_dry_season", 
@@ -1526,20 +1561,6 @@ diff_abund_wet <- Maaslin2(input_data = diff_ft2,
                        max_significance = 0.2,
                        min_abundance = 0.0001,
                        min_variance = 0.001)
-
-
-diff_abund_mixed <- Maaslin2(input_data = diff_ft2, 
-                       input_metadata = diff_metadata2, 
-                       output = "maaslin2_results_mixed", 
-                       fixed_effects = c("Time_point", "Mother_Ethnicity", "parity", 
-                                         "BF_in_first_six_months", "sampling_season",
-                                         "Mother_Age", "fungCluster", "bactCluster"),
-                       random_effects = c("Rand_No"),
-                       normalization = "NONE", 
-                       transform = "NONE",
-                       max_significance = 0.2,
-                       min_abundance = 0.0001,
-                       min_variance = 0.0001)
 
 
 ```
