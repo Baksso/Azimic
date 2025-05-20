@@ -135,9 +135,13 @@ init_raw_profile <- top40_rtax %>%
   scale_y_continuous(labels = scales::percent, ) +
   labs(x= " ", y= "Relative Abundance (Pre-filter)") +
   scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
-  theme(axis.title = element_text(size = 10), 
-        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
-  facet_wrap(facets = "Sample_type", scales = "free_x")
+  theme(axis.title = element_text(size = 14), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, 
+                                   hjust = 1, size = 10, face = "bold"),
+        axis.text.y = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 12))+
+  facet_wrap(facets = "Sample_type", scales = "free_x")+
+  theme(strip.text = element_text(size = 12, face = "bold"))
 
 init_raw_profile
 
@@ -428,9 +432,13 @@ postfilter_profile_1 <- top30 %>%
   scale_y_continuous(labels = scales::percent, ) +
   labs(x= " ", y= "Relative Abundance (Post-filter)") +
   scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
-  theme(axis.title = element_text(size = 10), 
-        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))+
-  facet_wrap(facets = "Sample_type", scales = "free_x")
+  theme(axis.title = element_text(size = 14), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, 
+                                   hjust = 1, size = 10, face = "bold"),
+        axis.text.y = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 12))+
+  facet_wrap(facets = "Sample_type", scales = "free_x") + 
+  theme(strip.text = element_text(size = 12, face = "bold"))
 
 postfilter_profile_1
 
@@ -491,10 +499,13 @@ sample_profiles_1 <- top28 %>% filter(Sample_type =="RS")%>%
   scale_y_continuous(labels = scales::percent, ) +
   labs(x= " ", y= "Relative Abundance", tag = "a" ) +
   scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
-  theme(axis.title = element_text(size = 16), 
-        axis.text.x = element_text(vjust = 0.5, hjust = 0.5),
-        axis.text = element_text(size = 14))+
-  facet_wrap(facets = "Time_point", scales = "free_x")
+  theme(axis.title = element_text(size = 14), 
+        axis.text.x = element_text(vjust = 0.5, hjust = 0.5, 
+                                   size = 10, face = "bold"),
+        axis.text.y = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 12))+
+  facet_wrap(facets = "Time_point", scales = "free_x")+
+  theme(strip.text = element_text(size = 12, face = "bold"))
 
 sample_profiles_1
 
@@ -517,9 +528,12 @@ samp_prfile_dry_season <- top28_dry %>% filter(Time_point!="year_3")%>%
   labs(x= " ", y= "Relative Abundance", title = "Dry season", tag = "b") +
   scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
   theme(axis.title = element_text(size = 14), 
-        axis.text.x = element_text(vjust = 0.5, hjust = 0.5),
-        axis.text = element_text(size = 12))+
-  facet_wrap(facets = "Time_point", scales = "free_x")
+        axis.text.x = element_text(vjust = 0.5, hjust = 0.5, 
+                                   size = 10, face = "bold"),
+        axis.text.y = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 12))+
+  facet_wrap(facets = "Time_point", scales = "free_x")+
+  theme(strip.text = element_text(size = 12, face = "bold"))
 
 
 top28_wet <- top28 %>% filter(Sample_type =="RS")%>% 
@@ -540,9 +554,12 @@ samp_prfile_wet_season <- top28_wet %>% filter(Time_point!="year_3")%>%
   labs(x= " ", y= "Relative Abundance", title = "Wet season") +
   scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
   theme(axis.title = element_text(size = 14), 
-        axis.text.x = element_text(vjust = 0.5, hjust = 0.5),
-        axis.text = element_text(size = 12))+
-  facet_wrap(facets = "Time_point", scales = "free_x", )
+        axis.text.x = element_text(vjust = 0.5, hjust = 0.5, 
+                                   size = 10, face = "bold"),
+        axis.text.y = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 12))+
+  facet_wrap(facets = "Time_point", scales = "free_x")+
+  theme(strip.text = element_text(size = 12, face = "bold"))
 
 season_profiles <- samp_prfile_dry_season/samp_prfile_wet_season 
 season_profiles
@@ -558,7 +575,7 @@ shannon <- function(x) {
 }
 
 richness <- function(x) {
-  sum(x>0)
+  length(unique(x))
 }
 
 clean_data <- comb_run_data2%>%
@@ -748,10 +765,12 @@ shannon_plot1 <- clean_data %>% filter(Sample_type=="RS")%>%
                outlier.colour = NA, show.legend = FALSE)+
   labs(x="Time_point", y="Shannon diversity", tag = "c")+
   theme_light()+
-  theme(axis.title = element_text(size = 16),
-        axis.text.x = element_text(angle = 20, vjust = 0.5, size = 14),
-         axis.text.y = element_text(size = 12)) +
-  stat_compare_means(aes(group=Treatment), method = "wilcox.test", label = "p.format",
+  theme(axis.title = element_text(size = 14, face = "bold"),
+        axis.text.x = element_text(angle = 20, vjust = 0.5, 
+                                   size = 12, face = "bold"),
+         axis.text.y = element_text(size = 12, face = "bold")) +
+  stat_compare_means(aes(group=Treatment), method = "wilcox.test", 
+                     label = "p.format",
                      show.legend = FALSE, label.y = c(1.1, 1.2, 1.3, 1.2, 1.1))
 shannon_plot1
 
@@ -770,12 +789,15 @@ shannon_trt_season <- clean_data %>%
                outlier.colour = NA, show.legend = TRUE)+
   labs(x="Time_point", y="Shannon diversity", tag = "d")+
   theme_light()+
-  theme(axis.title = element_text(size = 16),
-        axis.text.x = element_text(angle = 0, vjust = 0.5, size = 14),
-        axis.text.y = element_text(size = 12)) +
-  stat_compare_means(aes(group=Treatment), method = "wilcox.test", label = "p.format",
-                     show.legend = FALSE, label.y = c(1.2, 1.2))+
-  facet_wrap(facets = "sampling_season", scales = "free_x")
+  theme(axis.title = element_text(size = 14, face = "bold"),
+        axis.text.x = element_text(angle = 45, vjust = 0.5, 
+                                   size = 12, face = "bold"),
+        axis.text.y = element_text(size = 12, face = "bold")) +
+  stat_compare_means(aes(group=Treatment), method = "wilcox.test", 
+                     label = "p.format",
+                     show.legend = FALSE, label.y = c(1.2, 1.3, 1.26, 1.2))+
+  facet_wrap(facets = "sampling_season", scales = "free_x")+
+  theme(strip.text = element_text(size=12, face = "bold"))
  
 shannon_trt_season
 
@@ -803,16 +825,21 @@ shannon_parity <- parity_data %>% filter(Sample_type=="RS", Time_point !="year_3
                outlier.colour = NA, show.legend = TRUE)+
   labs(x="Time_point", y="Shannon diversity", tag = "e")+
   theme_light()+
-  theme(axis.title = element_text(size = 16),
-        axis.text.x = element_text(angle = 0, vjust = 0.5, size = 14)) +
+ theme(axis.title = element_text(size = 14, face = "bold"),
+        axis.text.x = element_text(angle = 45, vjust = 0.5, size = 12, face = "bold"),
+        axis.text.y = element_text(size = 12, face = "bold"),
+        legend.position = "bottom", legend.text = element_text(face = "bold")) +
   stat_compare_means(aes(group=Treatment), method = "wilcox.test", label = "p.format",
-                     show.legend = FALSE, label.y = c(1.2, 1.2))+
-  facet_wrap(facets = "parity", scales = "free_x")
+                     show.legend = FALSE, label.y = c(1.25, 1.15, 1.25, 1.2))+
+  facet_wrap(facets = "parity", scales = "free_x")+
+  theme(strip.text = element_text(size = 12, face = "bold"))
  
 shannon_parity
 
-shannon_combined <- shannon_plot1 + shannon_trt_season /shannon_parity + plot_layout(widths = c(0.5, 1))
-shannon_combined
+alpha_comb <- shan_regress + shannon_trt_season + rich_regress + shannon_parity + shannon_plot1 +   
+  plot_layout(ncol = 2, nrow = 3, widths = c(0.9, 1))
+
+alpha_comb
 
 
 #compare shannon diversity by age in each trial arm
@@ -1079,7 +1106,10 @@ nmd_plot2 <- plot_ordination(clean_ps_obj_azi, ordination = ord_azi, axes = 1:2,
   coord_fixed()+
   labs(title = "Azi", tag = "b")+
   theme_classic()+
-  theme(axis.text = element_text(size = 16))
+  theme(axis.text = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14))
 
 nmd_label_age_azi <- data.frame(label=c("All time_points [R^2 = 0.071, p < 0.001]",
                                     "day0-day6 [R^2 = 0.025, p = 0.505]",
@@ -1106,7 +1136,10 @@ nmd_plot3 <- plot_ordination(clean_ps_obj_pb, ordination = ord_pb, axes = 1:2, c
   coord_fixed()+
   labs(title = "Placebo", tag = "c")+
   theme_classic()+
-  theme(axis.text = element_text(size = 16))
+  theme(axis.text = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14))
 
 nmd_label_age_pb <- data.frame(label=c("All time_points [R^2 = 0.081, p < 0.001]",
                                     "day0-day6 [R^2 = 0.017, p = 0.164]",
@@ -1133,8 +1166,12 @@ nmd_plot1 <- plot_ordination(clean_ps_obj, ordination = ord_bray, color = "Treat
   coord_fixed()+
   labs(tag = "a")+
   theme_classic()+
-  theme(axis.text = element_text(size = 14))+
-  facet_wrap(facets = "Time_point", nrow = 2, ncol = 3)
+  theme(axis.text = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14))+
+  facet_wrap(facets = "Time_point", nrow = 2, ncol = 3) +
+  theme(strip.text = element_text(size = 14, face = "bold"))
 
 nmd_label_trt <- data.frame(label=c("R^2 = 0.031, p = 0.265", "R^2 = 0.016, p = 0.714", 
                                   "R^2 = 0.005, p = 0.993", "R^2 = 0.020, p = 0.363",
@@ -1292,10 +1329,11 @@ fungclust_freq_plot1 <- fungclust_freq %>%
   scale_y_continuous(labels = scales::percent, ) +
   labs(x= " ", y= "frequency", tag= "c") +
   scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
-  theme(axis.title = element_text(size = 14), 
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-        axis.text = element_text(size = 12))+
-  facet_wrap(facets = "Time_point", scales = "free_x")
+  theme(axis.title = element_text(size = 14, face = "bold"), 
+        axis.text.x = element_text(angle = 20, hjust = 0.8),
+        axis.text = element_text(size = 10, face = "bold"))+
+  facet_wrap(facets = "Time_point", scales = "free_x")+
+  theme(strip.text = element_text(size = 12, face = "bold"))
 
 fungclust_freq_plot1
 
@@ -1352,16 +1390,18 @@ fungclust_alluv <- dt_fungclust_data1b %>%
              fill=fungCluster), label=fungCluster)+
   scale_x_discrete(expand = c(0.01, 0.01)) +
   scale_fill_manual(values = my_palette, aesthetics = c( "color", "fill"))+
-  geom_flow() +
-  geom_stratum(alpha = 0.6) +
+  geom_flow(width = 1/2) +
+  geom_stratum(alpha = 0.6, width = 1/2) +
   theme_classic()+
-  theme(axis.title = element_text(size = 14), 
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-        axis.text = element_text(size = 12))+
-  labs(tag = "d")+
-  geom_text(stat = "stratum", size = 2.5, 
+  theme(axis.title = element_text(size = 14, face = "bold"), 
+        axis.text.x = element_text(angle = 20, vjust = 1, hjust = 0.8),
+        axis.text = element_text(size = 10, face = "bold"))+
+  labs(tag = "c")+
+  scale_y_continuous(n.breaks = 10)+
+  geom_text(stat = "stratum", size = 2.5,
             aes(label = percent(after_stat(prop), accuracy=.1)))+
-  facet_wrap(facets = "Treatment", scales = "free_x")
+  facet_wrap(facets = "Treatment", scales = "free_x")+
+  theme(strip.text = element_text(size = 12, face = "bold"), panel.spacing =unit(1, "cm"))
 
 fungclust_alluv
 
@@ -1460,7 +1500,7 @@ diff_abund_azi <- Maaslin2(input_data = diff_ft2,
                                          "Mother_Age", "sampling_season"),
                        normalization = "NONE",
                        transform = "NONE",
-                       max_significance = 0.2,
+                       max_significance = 0.25,
                        min_abundance = 0.0001,
                        min_variance = 0.0001)
 
@@ -1473,7 +1513,7 @@ diff_abund_pb <- Maaslin2(input_data = diff_ft2,
                                          "Mother_Age", "sampling_season"),
                        normalization = "NONE",
                        transform = "NONE",
-                       max_significance = 0.2,
+                       max_significance = 0.25,
                        min_abundance = 0.0001,
                        min_variance = 0.0001)
 
@@ -1483,7 +1523,7 @@ diff_abund_d0 <- Maaslin2(input_data = diff_ft2,
                        fixed_effects = c("Treatment"),
                        normalization = "NONE", 
                        transform = "NONE",
-                       max_significance = 0.2,
+                       max_significance = 0.25,
                        min_abundance = 0.0001,
                        min_variance = 0.0001)
 
@@ -1493,7 +1533,7 @@ diff_abund_d6 <- Maaslin2(input_data = diff_ft2,
                        fixed_effects = c("Treatment"),
                        normalization = "NONE", 
                        transform = "NONE",
-                       max_significance = 0.2,
+                       max_significance = 0.25,
                        min_abundance = 0.0001,
                        min_variance = 0.001)
 
@@ -1503,7 +1543,7 @@ diff_abund_d28 <- Maaslin2(input_data = diff_ft2,
                        fixed_effects = c("Treatment"),
                        normalization = "NONE", 
                        transform = "NONE",
-                       max_significance = 0.2,
+                       max_significance = 0.25,
                        min_abundance = 0.0001,
                        min_variance = 0.001)
 
@@ -1513,7 +1553,7 @@ diff_abund_m4 <- Maaslin2(input_data = diff_ft2,
                        fixed_effects = c("Treatment"),
                        normalization = "NONE", 
                        transform = "NONE",
-                       max_significance = 0.2,
+                       max_significance = 0.25,
                        min_abundance = 0.0001,
                        min_variance = 0.001)
 
@@ -1523,7 +1563,7 @@ diff_abund_yr3 <- Maaslin2(input_data = diff_ft2,
                        fixed_effects = c("Treatment"),
                        normalization = "NONE", 
                        transform = "NONE",
-                       max_significance = 0.2,
+                       max_significance = 0.25,
                        min_abundance = 0.0001,
                        min_variance = 0.001)
 
@@ -1537,7 +1577,7 @@ diff_abund_mixed <- Maaslin2(input_data = diff_ft2,
                        random_effects = c("Rand_No"),
                        normalization = "NONE", 
                        transform = "NONE",
-                       max_significance = 0.2,
+                       max_significance = 0.25,
                        min_abundance = 0.0001,
                        min_variance = 0.0001)
 
@@ -1547,7 +1587,7 @@ diff_abund_dry <- Maaslin2(input_data = diff_ft2,
                        fixed_effects = c("Treatment"),
                        normalization = "NONE", 
                        transform = "NONE",
-                       max_significance = 0.2,
+                       max_significance = 0.25,
                        min_abundance = 0.0001,
                        min_variance = 0.001)
 
@@ -1558,7 +1598,7 @@ diff_abund_wet <- Maaslin2(input_data = diff_ft2,
                        fixed_effects = c("Treatment"),
                        normalization = "NONE", 
                        transform = "NONE",
-                       max_significance = 0.2,
+                       max_significance = 0.25,
                        min_abundance = 0.0001,
                        min_variance = 0.001)
 
