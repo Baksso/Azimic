@@ -1,2 +1,2 @@
 # Azimic
-This repository provides codes that were used in the analysis of the effect of intrapartum azithromycin on microbiome development in early childhood as part of the PregnAnZI trials.
+This repository provides codes that were used in the analysis of the effect of intrapartum azithromycin on microbiome development in early childhood as part of the PregnAnZI trials. The scripts are named according to the study (MIC1 or MIC2) and the type of analysis. MIC1 is the nasopharyngeal microbiota study linked to PregnAnZI-1 and MIC2 is the gut microbiota study linked to PregnAnZI-2.
