@@ -1741,7 +1741,7 @@ diff_age_plots
 ```
 
 
-```{r heatmap, echo=TRUE}
+```{r fungClust heatmap, echo=TRUE}
 
 library(ggtext)
 
