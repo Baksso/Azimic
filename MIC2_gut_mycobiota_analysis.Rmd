@@ -1606,6 +1606,141 @@ diff_abund_wet <- Maaslin2(input_data = diff_ft2,
 ```
 
 
+```{r plot abundance of significant taxa from maaslin2, echo=TRUE}
+
+samp_meta <- diff_metadata %>% select(-rel_abund)
+samp_meta$Time_point <- dplyr::recode(samp_meta$Time_point, day_6="day_06")
+
+abund_data <- diff_ft %>% 
+  pivot_longer(cols = -Sample_ID, names_to = "Taxid", 
+               values_to = "rel_abund") %>% 
+  right_join(., samp_meta, by="Sample_ID")
+
+#C. orthopsilosis and A. luchuensis between trial arms in wet season
+
+corthop_plot <- abund_data %>% 
+filter(Taxid=="Candida orthopsilosis", sampling_season=="Wet")%>%
+  group_by(Treatment) %>% 
+  mutate(trtmnt=paste(Treatment, length(unique(Sample_ID)), sep = " n=")) %>% 
+  group_by(Sample_ID, Taxid, Treatment, sampling_season, rel_abund)%>%
+  ggplot(aes(x=trtmnt, y= rel_abund, color=Treatment)) +
+  geom_jitter(position = position_jitterdodge(dodge.width=1), 
+              alpha=0.6, show.legend = FALSE)+
+  scale_color_manual(values = c("#FF6501", "#373A40"))+
+  theme_classic()+
+  scale_y_continuous(limits = c(0.00, 1.00))+
+  geom_boxplot(alpha=0.6, position = position_dodge(width =0.8),
+               show.legend = FALSE)+
+  theme(axis.text = element_text(face = "bold", size = 12),
+        axis.title = element_text(face = "bold", size = 14))+
+  labs(tag = "b", title = "wet season", x= "Treatment", 
+       y="Candida orthopsilosis", 
+       subtitle = "FDR: 0.18; Coefficient: 0.0675")
+
+corthop_plot
+
+aspergi_plot <-  abund_data %>% 
+filter(Taxid=="Aspergillus luchuensis", sampling_season=="Wet")%>% group_by(Treatment) %>% 
+  mutate(trtmnt=paste(Treatment, length(unique(Sample_ID)), sep = " n=")) %>% 
+  group_by(Sample_ID, Taxid, Treatment, sampling_season, rel_abund)%>%
+  ggplot(aes(x=trtmnt, y= rel_abund, color=Treatment)) +
+  geom_jitter(position = position_jitterdodge(dodge.width=1), 
+              alpha=0.6, show.legend = FALSE)+
+  scale_color_manual(values = c("#FF6501", "#373A40"))+
+  theme_classic()+
+  scale_y_continuous(limits = c(0.00, 1.00))+
+  geom_boxplot(alpha=0.6, position = position_dodge(width =0.8),
+               show.legend = FALSE)+
+  theme(axis.text = element_text(face = "bold", size = 12),
+        axis.title = element_text(face = "bold", size = 14))+
+  labs(tag = "c", title = "wet season", x= "Treatment", y="Apsergillus luchuensis", subtitle = "FDR: 0.18; Coefficient: -0.0508")
+  
+aspergi_plot
+
+cand_asper_plot <- corthop_plot + aspergi_plot
+cand_asper_plot
+
+
+#differential taxa abundance by age
+
+age_color <- c("#AA8501","#BB8501","#FF9501","#FF8001","#FF5800")
+
+sacc_plot <-  abund_data %>% 
+filter(Taxid=="saccharomyceta")%>% group_by(Time_point) %>% 
+  mutate(time=paste(Time_point, length(unique(Sample_ID)), sep = " n=")) %>% 
+  group_by(Sample_ID, Taxid, Time_point, rel_abund)%>%
+  ggplot(aes(x=time, y= rel_abund, color=Time_point, fill = Time_point)) +
+  geom_jitter(position = position_jitterdodge(dodge.width=1), 
+              alpha=0.8, show.legend = FALSE)+
+  scale_color_manual(values = age_color)+
+  theme_classic()+
+  scale_y_continuous(limits = c(0.00, 1.00))+
+  geom_boxplot(alpha=0.6, position = position_dodge(width =0.8),
+               show.legend = FALSE, fill=age_color)+
+  theme(axis.text = element_text(face = "bold", size = 10),
+        axis.text.x = element_text(angle = 20, vjust = 0.8, hjust = 0.8),
+        axis.title = element_text(face = "bold", size = 10))+
+  labs(tag = "a", x= "Treatment", 
+       y="Saccharomyceta", 
+       subtitle = "FDR: 0.00856; Coefficient: 0.137")
+
+sacc_plot
+
+
+crypto_plot <-  abund_data %>% 
+filter(Taxid=="Cryptococcus")%>% group_by(Time_point) %>% 
+  mutate(time=paste(Time_point, length(unique(Sample_ID)), sep = " n=")) %>% 
+  group_by(Sample_ID, Taxid, Time_point, rel_abund)%>%
+  ggplot(aes(x=time, y= rel_abund, color=Time_point, fill = Time_point)) +
+  geom_jitter(position = position_jitterdodge(dodge.width=1), 
+              alpha=0.8, show.legend = FALSE)+
+  scale_color_manual(values = age_color)+
+  theme_classic()+
+  scale_y_continuous(limits = c(0.00, 1.00))+
+  geom_boxplot(alpha=0.6, position = position_dodge(width =0.8),
+               show.legend = FALSE, fill= age_color)+
+  theme(axis.text = element_text(face = "bold", size = 10),
+        axis.text.x = element_text(angle = 20, vjust = 0.8, hjust = 0.8),
+        axis.title = element_text(face = "bold", size = 10))+
+  labs(tag = "b", x= "Treatment", 
+       y="Cryptococcus", 
+       subtitle = "FDR: 0.1736; Coefficient: -0.0831")
+
+crypto_plot
+
+
+asper_plot <-  abund_data %>% 
+filter(Taxid=="Aspergillus subgen. Circumdati") %>% group_by(Time_point) %>% 
+  mutate(time=paste(Time_point, length(unique(Sample_ID)), sep = " n=")) %>% 
+  group_by(Sample_ID, Taxid, Time_point, rel_abund, time)%>%
+  ggplot(aes(x=time, y= rel_abund, color=Time_point, fill = Time_point)) +
+  geom_jitter(position = position_jitterdodge(dodge.width=), 
+              alpha=0.8, show.legend = FALSE)+
+  scale_color_manual(values = age_color)+
+  theme_classic()+
+  scale_y_continuous(limits = c(0.00, 1.00))+
+  geom_boxplot(alpha=0.6, position = position_dodge(width =0.8),
+               show.legend = FALSE, fill= age_color)+
+  theme(axis.text = element_text(face = "bold", size = 10),
+        axis.text.x = element_text(angle=20, vjust = 0.8, hjust = 0.8),
+        axis.title = element_text(face = "bold", size = 10))+
+  labs(tag = "c", x= "Treatment", 
+       y="Aspergillus subgen Circumdati", 
+       subtitle = 
+       "day6 - FDR: 0.01757; Coefficient: -0.0707
+       day28 - FDR: 0.1147; Coefficient: -0.0558
+       month_4 - FDR: 0.0134; Coefficient: -0.0742
+       year_3 - FDR:0.134; Coefficient: -0.0745")
+
+asper_plot
+
+diff_age_plots <- sacc_plot+crypto_plot+asper_plot + plot_layout(ncol = 2, nrow = 2)
+diff_age_plots
+
+
+```
+
+
 ```{r heatmap, echo=TRUE}
 
 library(ggtext)
